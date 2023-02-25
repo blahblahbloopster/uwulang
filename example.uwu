@@ -1,0 +1,34 @@
+package main;
+
+fuwn hewwo() {
+    wwite(72);
+    wwite(101);
+    wwite(119);
+    wwite(119);
+    wwite(111);
+}
+
+fuwn wowwd() {
+    wwite(119);
+    wwite(111);
+    wwite(119);
+    wwite(119);
+    wwite(100);
+}
+
+fuwn wn() {
+    wwite(10);
+    fwush();
+}
+
+fuwn main() {
+    hewwo();
+
+    wwite(32);
+
+    wowwd();
+
+    wwite(33);
+
+    wn();
+}
