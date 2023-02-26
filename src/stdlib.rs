@@ -42,8 +42,8 @@ use crate::{newcompiler::{UwUTy, Primitive}, runtime::VM};
 pub struct NativeFunction<'b> {
     pub id: u64,
     pub fqn: Vec<String>,
-    pub args: Vec<(String, &'b UwUTy<'b>)>,
-    pub ret: &'b UwUTy<'b>,
+    pub args: Vec<(String, UwUTy<'b>)>,
+    pub ret: UwUTy<'b>,
     pub func: fn(&mut VM)
 }
 
@@ -75,14 +75,14 @@ impl<'b> Debug for NativeFunction<'b> {
     }
 }
 
-#[derive(Debug, PartialEq, Hash)]
+#[derive(Debug, PartialEq, Hash, Eq)]
 pub enum NativeType {
     Primitive(Primitive)
 }
 
-pub const PRIMITIVE_TYPES: [&'static NativeType; 4] = [
-    &NativeType::Primitive(Primitive::Unit),
-    &NativeType::Primitive(Primitive::I64),
-    &NativeType::Primitive(Primitive::F64),
-    &NativeType::Primitive(Primitive::Bool),
-];
+pub const UNIT: &'static NativeType = &NativeType::Primitive(Primitive::Unit);
+pub const I64: &'static NativeType = &NativeType::Primitive(Primitive::I64);
+pub const F64: &'static NativeType = &NativeType::Primitive(Primitive::F64);
+pub const BOOL: &'static NativeType = &NativeType::Primitive(Primitive::Bool);
+
+pub const PRIMITIVE_TYPES: [&'static NativeType; 4] = [UNIT, I64, F64, BOOL];

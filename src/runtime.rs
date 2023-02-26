@@ -1,37 +1,48 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, process::exit};
 
 use crate::{newcompiler::UwUTy, stdlib::NativeFunction};
 
+#[derive(Debug, Clone)]
+pub enum FieldInfo {
+    Primitive,
+    Array(Box<FieldInfo>),
+    Fields(Vec<FieldInfo>)
+}
+
 pub struct VM<'a> {
-    types: Vec<UwUTy<'a>>,
+    types: Vec<FieldInfo>,
     heap: HashMap<u64, UwUIns<'a>>,
-    stack: Vec<StackFrame<'a>>
+    stack: Vec<StackFrame<'a>>,
+    program: Vec<Instruction<'a>>,
+    program_counter: usize
 }
 
-struct StackFrame<'a> {
+struct StackFrame<'b> {
     return_addr: u64,
-    values: Vec<(u64, &'a UwUTy<'a>)>
+    values: Vec<(i64, &'b FieldInfo)>
 }
 
-enum UwUIns<'a> {
-    Arr { item_type: &'a UwUTy<'a>, items: Vec<UwUIns<'a>> },
-    Struct { tpe: &'a UwUTy<'a>, data: Vec<u64> }
+enum UwUIns<'b> {
+    Arr { item_type: &'b FieldInfo, items: Vec<FieldInfo> },
+    Struct { tpe: &'b FieldInfo, data: Vec<i64> }
 }
 
+#[derive(Debug, Clone)]
 pub enum Cond {
     Always, Never,
     ILe, ILeE, Eq, IGrE, IGr,
     FLe, FLeE,     FGrE, FGr, FNaN, FInf
 }
 
+#[derive(Debug, Clone)]
 pub enum Instruction<'b> {
     // flow control
-    HALT, BRANCH(Cond), CALL,
+    HALT, BRANCH(Cond, u64), CALL(u64, u32),
 
     // memory
-    PUSHFR, POPFR, PUSH(u64), POP,
-    ALLOC(&'b UwUTy<'b>),
-    ALLOCA(&'b UwUTy<'b>),
+    PUSHFR, POPFR, PUSH(i64), POP, COPY { from_top: u32, in_frame: u32 }, MOV { from_top: u32, in_frame: u32 },
+    ALLOC(FieldInfo),
+    ALLOCA(FieldInfo),
     
     /// Gets the nth field from the last object on the stack (does NOT pop)
     GET(u32),
@@ -48,66 +59,54 @@ pub enum Instruction<'b> {
     NATIVE(&'b NativeFunction<'b>)
 }
 
-impl<'a> Instruction<'a> {
-    pub fn num_popped(&self) -> i32 {
-        match self {
-            Instruction::HALT => 0,
-            Instruction::BRANCH(_) => 2,
-            Instruction::CALL => 0,
-            Instruction::PUSHFR => 0,
-            Instruction::POPFR => 0,
-            Instruction::PUSH(_) => 0,
-            Instruction::POP => 1,
-            Instruction::ALLOC(_) => 0,
-            Instruction::ALLOCA(_) => 1,
-            Instruction::GET(_) => 0,
-            Instruction::SET(_) => 1,
-            Instruction::GETA => 1,
-            Instruction::SETA => 2,
-            Instruction::IADD => 2,
-            Instruction::ISUB => 2,
-            Instruction::IMUL => 2,
-            Instruction::IDIV => 2,
-            Instruction::IMOD => 2,
-            Instruction::FADD => 2,
-            Instruction::FSUB => 2,
-            Instruction::FMUL => 2,
-            Instruction::FDIV => 2,
-            Instruction::CMP(_) => 2,
-            Instruction::NATIVE(v) => v.args.len() as i32
+impl<'a> VM<'a> {
+    pub fn tick(&mut self) {
+        let instruction = &self.program[self.program_counter];
+        self.program_counter += 1;
+
+        match instruction {
+            Instruction::HALT => exit(0),
+            Instruction::BRANCH(_, _) => todo!(),
+            Instruction::CALL(_, _) => todo!(),
+            Instruction::PUSHFR => todo!(),
+            Instruction::POPFR => todo!(),
+            Instruction::PUSH(_) => todo!(),
+            Instruction::POP => todo!(),
+            Instruction::COPY { from_top, in_frame } => todo!(),
+            Instruction::MOV { from_top, in_frame } => todo!(),
+            Instruction::ALLOC(_) => todo!(),
+            Instruction::ALLOCA(_) => todo!(),
+            Instruction::GET(_) => todo!(),
+            Instruction::SET(_) => todo!(),
+            Instruction::GETA => todo!(),
+            Instruction::SETA => todo!(),
+            Instruction::IADD => todo!(),
+            Instruction::ISUB => todo!(),
+            Instruction::IMUL => todo!(),
+            Instruction::IDIV => todo!(),
+            Instruction::IMOD => todo!(),
+            Instruction::FADD => todo!(),
+            Instruction::FSUB => todo!(),
+            Instruction::FMUL => todo!(),
+            Instruction::FDIV => todo!(),
+            Instruction::CMP(_) => todo!(),
+            Instruction::NATIVE(_) => todo!(),
         }
     }
 
-    pub fn num_pushed(&self) -> i32 {
-        match self {
-            Instruction::HALT => 0,
-            Instruction::BRANCH(_) => 0,
-            Instruction::CALL => 1,
-            Instruction::PUSHFR => 0,
-            Instruction::POPFR => 0,
-            Instruction::PUSH(_) => 1,
-            Instruction::POP => 0,
-            Instruction::ALLOC(_) => 1,
-            Instruction::ALLOCA(_) => 1,
-            Instruction::GET(_) => 1,
-            Instruction::SET(_) => 0,
-            Instruction::GETA => 1,
-            Instruction::SETA => 0,
-            Instruction::IADD => 1,
-            Instruction::ISUB => 1,
-            Instruction::IMUL => 1,
-            Instruction::IDIV => 1,
-            Instruction::IMOD => 1,
-            Instruction::FADD => 1,
-            Instruction::FSUB => 1,
-            Instruction::FMUL => 1,
-            Instruction::FDIV => 1,
-            Instruction::CMP(_) => 1,
-            Instruction::NATIVE(_) => 1
-        }
+    fn popi(&mut self) -> i64 {
+        self.stack.last_mut().unwrap().values.pop().unwrap().0
     }
 
-    pub fn net_stack(&self) -> i32 {
-        self.num_pushed() - self.num_popped()
+    fn popf(&mut self) -> f64 {
+        unsafe { std::mem::transmute(self.popi()) }
+    }
+
+    fn popb(&mut self) -> bool {
+        self.popi() != 0
+    }
+
+    fn pushi(&mut self, v: i64) {
+        self.stack.last_mut().unwrap().values.push((v, &FieldInfo::Primitive))
     }
 }
