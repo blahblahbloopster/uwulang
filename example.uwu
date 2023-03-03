@@ -1,34 +1,31 @@
 package main;
 
-fuwn hewwo() {
-    wwite(72);
-    wwite(101);
-    wwite(119);
-    wwite(119);
-    wwite(111);
+impowt io::pwintwn;
+impowt io::wwite;
+impowt mem::gc;
+
+stwuct Bwah {
+    content: i64[],
+    wepeats: i64
 }
 
-fuwn wowwd() {
-    wwite(119);
-    wwite(111);
-    wwite(119);
-    wwite(119);
-    wwite(100);
-}
+fuwn test() {
+    wet test = new Bwah("testing", 10);
+    pwintwn(test.content);
+    gc();
 
-fuwn wn() {
-    wwite(10);
-    fwush();
+    test.content = "hewwo, wowwd! ~~";
+    pwintwn(test.content);
+
+    whiwe (test.wepeats > 0) {
+        wwite('a' + test.wepeats);
+        test.wepeats = test.wepeats - 1;
+    }
+    pwintwn("");
 }
 
 fuwn main() {
-    hewwo();
-
-    wwite(32);
-
-    wowwd();
-
-    wwite(33);
-
-    wn();
+    test();
+    gc();
+    gc();
 }

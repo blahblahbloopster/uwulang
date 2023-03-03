@@ -35,14 +35,16 @@
 //     stdlib().iter().map(|x| x.to_runtime()).collect()
 // }
 
-use std::{fmt::Debug, hash::Hash};
+use std::{fmt::Debug, hash::Hash, io::Write};
+
+use once_cell::sync::Lazy;
 
 use crate::{newcompiler::{UwUTy, Primitive}, runtime::VM};
 
 pub struct NativeFunction<'b> {
     pub id: u64,
-    pub fqn: Vec<String>,
-    pub args: Vec<(String, UwUTy<'b>)>,
+    pub fqn: Vec<&'b str>,
+    pub args: Vec<(&'b str, UwUTy<'b>)>,
     pub ret: UwUTy<'b>,
     pub func: fn(&mut VM)
 }
@@ -75,9 +77,65 @@ impl<'b> Debug for NativeFunction<'b> {
     }
 }
 
-#[derive(Debug, PartialEq, Hash, Eq)]
+pub static STDLIB_FUNCS: Lazy<[NativeFunction; 5]> = Lazy::new(|| {[
+        NativeFunction { id: 0, fqn: vec!["io", "wwite"], args: vec![("chaw", UwUTy::Native(I64))], ret: UwUTy::Native(UNIT), func: |vm| {
+            let value = vm.popi() as u8;
+            std::io::stdout().write(&[value]).unwrap();
+            vm.pushi(0);
+        } },
+        NativeFunction { id: 1, fqn: vec!["io", "fwush"], args: vec![], ret: UwUTy::Native(UNIT), func: |vm| {
+            std::io::stdout().flush().unwrap();
+            vm.pushi(0);
+        } },
+        NativeFunction { id: 2, fqn: vec!["io", "pwintwn"], args: vec![("stwing", UwUTy::Array(Box::new(UwUTy::Native(I64))))], ret: UwUTy::Native(UNIT), func: |vm| {
+            let value = vm.pop();
+            let found = &vm.heap[&value.0];
+            match found {
+                crate::runtime::UwUIns::Arr { mark: _, item_type, items } => {
+                    let mut stdout = std::io::stdout();
+                    stdout.write(items.iter().map(|x| x.unwrap() as u8).collect::<Vec<_>>().as_slice()).unwrap();
+                    stdout.write(&['\n' as u8]).unwrap();
+                    stdout.flush().unwrap();
+                }
+                crate::runtime::UwUIns::Struct { mark: _, tpe, data } => panic!()
+            };
+            vm.pushi(0);
+        } },
+        NativeFunction { id: 3, fqn: vec!["io", "pwint"], args: vec![("stwing", UwUTy::Array(Box::new(UwUTy::Native(I64))))], ret: UwUTy::Native(UNIT), func: |vm| {
+            let value = vm.pop();
+            let found = &vm.heap[&value.0];
+            match found {
+                crate::runtime::UwUIns::Arr { mark: _, item_type, items } => {
+                    let mut stdout = std::io::stdout();
+                    stdout.write(items.iter().map(|x| x.unwrap() as u8).collect::<Vec<_>>().as_slice()).unwrap();
+                    stdout.flush().unwrap();
+                }
+                crate::runtime::UwUIns::Struct { mark: _, tpe, data } => panic!()
+            };
+            vm.pushi(0);
+        } },
+        NativeFunction { id: 4, fqn: vec!["mem", "gc"], args: vec![], ret: UwUTy::Native(UNIT), func: |vm| {
+            vm.gc();
+            vm.pushi(0);
+        } },
+    ]});
+
+#[derive(Debug, PartialEq, Hash, Eq, Clone)]
 pub enum NativeType {
     Primitive(Primitive)
+}
+
+impl NativeType {
+    pub fn fqn(&self) -> Vec<String> {
+        match self {
+            NativeType::Primitive(p) => match p {
+                Primitive::Unit => vec!["unit".to_string()],
+                Primitive::I64 => vec!["i64".to_string()],
+                Primitive::F64 => vec!["f64".to_string()],
+                Primitive::Bool => vec!["boow".to_string()],
+            }
+        }
+    }
 }
 
 pub const UNIT: &'static NativeType = &NativeType::Primitive(Primitive::Unit);

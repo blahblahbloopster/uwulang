@@ -10,10 +10,10 @@
 
 use std::{collections::HashMap, slice::Iter};
 
-use crate::{Declaration, ParsedFile, NameTypePair, stdlib::{NativeType, NativeFunction, PRIMITIVE_TYPES, UNIT, I64, BOOL, F64}, runtime::{Instruction, FieldInfo}, Expression, Statement};
+use crate::{Declaration, ParsedFile, NameTypePair, stdlib::{NativeType, NativeFunction, PRIMITIVE_TYPES, UNIT, I64, BOOL, F64, STDLIB_FUNCS}, runtime::{Instruction, FieldInfo, Cond, Tpe}, Expression, Statement, BiOp, Type};
 
 #[derive(Clone, Debug, PartialEq, Hash, Eq)]
-struct UwUStrc<'b> {
+pub struct UwUStrc<'b> {
     fqn: Vec<String>,
     fields: Vec<(String, UwUTy<'b>)>
 }
@@ -46,7 +46,7 @@ struct UnresolvedImport {
     name: String
 }
 
-#[derive(PartialEq, Hash, Eq)]
+#[derive(PartialEq, Hash, Eq, Debug)]
 enum UwUFunc<'a, 'b> {
     Native(&'b NativeFunction<'b>),
     Defined { fqn: Vec<String>, args: Vec<(String, UwUTy<'b>)>, return_type: UwUTy<'b>, data: &'a Vec<Statement<'a>> }
@@ -55,7 +55,7 @@ enum UwUFunc<'a, 'b> {
 impl<'a, 'b> UwUFunc<'a, 'b> {
     fn fqn(&self) -> Vec<String> {
         match self {
-            UwUFunc::Native(v) => v.fqn.clone(),
+            UwUFunc::Native(v) => v.fqn.iter().map(|x| x.to_string()).collect(),
             UwUFunc::Defined { fqn, args, return_type, data } => fqn.clone(),
         }
     }
@@ -69,7 +69,7 @@ impl<'a, 'b> UwUFunc<'a, 'b> {
 
     fn args(&self) -> Vec<(String, UwUTy)> {
         match self {
-            UwUFunc::Native(v) => v.args.iter().map(|x| (x.0.clone(), x.1.pseudo_copy())).collect(),
+            UwUFunc::Native(v) => v.args.iter().map(|x| (x.0.to_string(), x.1.pseudo_copy())).collect(),
             UwUFunc::Defined { fqn, args, return_type, data } => args.iter().map(|x| (x.0.clone(), x.1.pseudo_copy())).collect()
         }
     }
@@ -82,6 +82,7 @@ impl<'a, 'b> UwUFunc<'a, 'b> {
     }
 }
 
+#[derive(Debug)]
 enum Importable<'a, 'b> {
     Type(UwUTy<'b>),
     Function(UwUFunc<'a, 'b>)
@@ -103,14 +104,14 @@ impl<'a, 'b> Importable<'a, 'b> {
     }
 }
 
-#[derive(PartialEq, Eq, Hash)]
-struct UwUFi<'a> {
-    fqn: Vec<String>,
-    content: Vec<Declaration<'a>>
+#[derive(PartialEq, Eq, Hash, Debug)]
+pub struct UwUFi<'a> {
+    pub fqn: Vec<String>,
+    pub content: Vec<Declaration<'a>>
 }
 
 impl<'b> UwUTy<'b> {
-    fn to_info(&self) -> FieldInfo {
+    pub fn to_info(&self) -> FieldInfo {
         match self {
             UwUTy::Struct(s) => FieldInfo::Fields(s.fields.iter().map(|x| x.1.to_info()).collect()),
             UwUTy::Native(_) => FieldInfo::Primitive,
@@ -119,8 +120,14 @@ impl<'b> UwUTy<'b> {
     }
 }
 
-fn compile<'a, 'b, 'c>(files: &'a Vec<UwUFi<'a>>, entrypoint: Vec<String>) -> (Vec<FieldInfo>, Vec<Instruction<'c>>) {
-    // let mut out = ResolvedTypesFileData { mapping: HashMap::new(), structs: vec![], functions: vec![], files };
+fn resolve<'a, 'b>(mapping: &HashMap<String, Importable<'a, 'b>>, tpe: &Type) -> Option<UwUTy<'b>> {
+    match tpe {
+        Type::Simple(t) => mapping[t].as_type(),
+        Type::Array(t) => Some(UwUTy::Array(Box::new(resolve(mapping, &*t)?)))
+    }
+}
+
+pub fn compile<'a, 'b, 'c>(files: &'a Vec<UwUFi<'a>>, entrypoint: Vec<String>) -> (Vec<FieldInfo>, Vec<Instruction>) {
     // let mut structs = vec![];
     let mut structs_s = vec![];
     let mut structs_f = vec![];
@@ -160,8 +167,8 @@ fn compile<'a, 'b, 'c>(files: &'a Vec<UwUFi<'a>>, entrypoint: Vec<String>) -> (V
         let mut file_mapping = HashMap::new();
 
         for item in raw_imports {
-            let stdlib_type = None;  // TODO: stdlib types here!
-            let stdlib_fun = None;  // TODO: stdlib functions here!
+            let stdlib_type = PRIMITIVE_TYPES.iter().find(|x| x.fqn() == item.fqn).map(|x| Importable::Type(UwUTy::Native(x)));
+            let stdlib_fun = STDLIB_FUNCS.iter().find(|x| x.fqn == item.fqn).map(|x| Importable::Function(UwUFunc::Native(x)));
             // check if it's a struct
             let found_type = structs_s.iter().find(|x| x.fqn == item.fqn).map(|found| Importable::Type(UwUTy::Struct(&found)));
             // check if it's a function
@@ -174,8 +181,29 @@ fn compile<'a, 'b, 'c>(files: &'a Vec<UwUFi<'a>>, entrypoint: Vec<String>) -> (V
             file_mapping.insert(item.name, found);
         }
 
+        for item in PRIMITIVE_TYPES {
+            file_mapping.insert(item.fqn().last().unwrap().to_string(), Importable::Type(UwUTy::Native(item)));
+        }
+
+        for (func, fi, _) in &functions {
+            if fi == &file {
+                file_mapping.insert(func.fqn().last().unwrap().clone(), Importable::Function(func.pseudo_copy()));
+            }
+        }
+
+        for i in 0..structs_s.len() {
+            let strct = &structs_s[i];
+            let fi = &structs_f[i];
+
+            if fi == &file {
+                file_mapping.insert(strct.fqn.last().unwrap().clone(), Importable::Type(UwUTy::Struct(strct)));
+            }
+        }
+
         mapping.insert(file, file_mapping);
     }
+
+    // println!("mapping: {:?}", mapping);
 
     // Resolve struct types
     for idx in 0..structs_s.len() {
@@ -190,7 +218,7 @@ fn compile<'a, 'b, 'c>(files: &'a Vec<UwUFi<'a>>, entrypoint: Vec<String>) -> (V
             let name = pair.name.clone();
             let type_name = &pair.tpe;
 
-            let resolved_type = mapping[file][type_name].as_type().expect("cannot use a function as a type");  // TODO: error checking instead of just panic if not found
+            let resolved_type = resolve(&mapping[file], type_name).expect("cannot use a function as a type");  // TODO: error checking instead of just panic if not found
 
             (name, resolved_type)
         }).collect();
@@ -206,18 +234,18 @@ fn compile<'a, 'b, 'c>(files: &'a Vec<UwUFi<'a>>, entrypoint: Vec<String>) -> (V
             _ => panic!()
         };
 
-        let resolved_ret_type = mapping[file][&rtype.unwrap_or("unit".to_string())].as_type().expect("cannot use a function as a type");
+        let resolved_ret_type = resolve(&mapping[file], &rtype.unwrap_or(Type::Simple("unit".to_string()))).expect("cannot use a function as a type");
         let resolved_args = args.iter().map(|arg| {
-            (arg.name.clone(), mapping[file][&arg.tpe].as_type().expect("cannot use a function as a type"))
+            (arg.name.clone(), resolve(&mapping[file], &arg.tpe).expect("cannot use a function as a type"))
         }).collect();
         let new = &mut UwUFunc::Defined { fqn: func.fqn(), args: resolved_args, return_type: resolved_ret_type, data };
         std::mem::swap(new, unsafe { &mut *(func as *const UwUFunc as *mut UwUFunc) });
     }
 
     // do the actual compiling
-    let entryp = functions.iter().find(|x| x.1.fqn == entrypoint).expect("entrypoint not found");
+    let entryp = functions.iter().find(|x| x.0.fqn() == entrypoint).expect("entrypoint not found");
 
-    let mut out = InstructionBuilder { out: vec![], calls_to_update: vec![], stack: vec![], starts: HashMap::new(), types: HashMap::new() };
+    let mut out = InstructionBuilder { out: vec![], calls_to_update: vec![], stack: vec![], starts: HashMap::new(), type_m: HashMap::new(), types: vec![] };
     compile_function(&entryp.0, &mapping[entryp.1], &mut out);
 
     for (func, file, _) in &functions {
@@ -232,32 +260,76 @@ fn compile<'a, 'b, 'c>(files: &'a Vec<UwUFi<'a>>, entrypoint: Vec<String>) -> (V
         out.out[idx] = Instruction::CALL(found as u64, func.args().len() as u32);
     }
 
-    // let mut out_structs = vec![];
-    // for (strct, _, _) in structs_s {
-    //     out_structs.push(strct);
-    // };
-
-    let mut info = vec![];
-    for item in &structs_s {
-        info.push(UwUTy::Struct(item).to_info())
-    }
-
-    (info, out.out)
+    (out.types, out.out)
 }
 
-fn compile_expr<'a, 'b, 'c>(expr: &Expression, import_mapping: &HashMap<String, Importable<'a, 'b>>, out: &mut InstructionBuilder<'a, 'b, 'c>) {
+fn compile_expr<'a, 'b, 'c>(expr: &Expression, import_mapping: &HashMap<String, Importable<'a, 'b>>, out: &mut InstructionBuilder<'a, 'b>) {
     match expr {
         Expression::Literal(v) => {
             let tpe = match v {
                 crate::Literal::Int(n) => { out.push(Instruction::PUSH(*n)); UwUTy::Native(I64) }
                 crate::Literal::Float(n) => { out.push(Instruction::PUSH(n.as_int())); UwUTy::Native(F64) }
                 crate::Literal::Bool(b) => { out.push(Instruction::PUSH(b.as_int())); UwUTy::Native(BOOL) }
-                crate::Literal::String(s) => todo!(),
+                crate::Literal::String(s) => {
+                    let in_frame = out.current().values.len() as u32;
+                    let chars = s.chars().collect::<Vec<_>>();
+                    out.push(Instruction::PUSH(chars.len() as i64));
+                    out.push(Instruction::ALLOCA(Tpe::Native));
+                    for (i, c) in chars.iter().enumerate() {
+                        out.push(Instruction::COPY { from_top: 0, in_frame });
+                        out.push(Instruction::PUSH(i as i64));
+                        out.push(Instruction::PUSH(*c as i64));
+                        out.push(Instruction::SETA);
+                    };
+                    UwUTy::Array(Box::new(UwUTy::Native(&I64)))
+                }
             };
             out.current().values.push((None, tpe));
         }
         Expression::Parenthesis(v) => compile_expr(v, import_mapping, out),
-        Expression::BiOperation(l, op, r) => todo!(),
+        Expression::BiOperation(l, op, r) => {
+            compile_expr(&*l, import_mapping, out);
+            let l_type = &out.current().values.last().unwrap().1.pseudo_copy();
+            compile_expr(&*r, import_mapping, out);
+            let r_type = &out.current().values.last().unwrap().1.pseudo_copy();
+
+            if l_type != r_type {
+                panic!("left and right terms must have the same type (left = {:?}, right = {:?})", l_type, r_type);
+            }
+
+            let matrix = match op {
+                // i64, f64, bool, custom
+                BiOp::Plus => [Some((Instruction::IADD, UwUTy::Native(&NativeType::Primitive(Primitive::I64)))), Some((Instruction::FADD, UwUTy::Native(&NativeType::Primitive(Primitive::I64)))), None, None],
+                BiOp::Minus => [Some((Instruction::ISUB, UwUTy::Native(&NativeType::Primitive(Primitive::I64)))), Some((Instruction::FSUB, UwUTy::Native(&NativeType::Primitive(Primitive::I64)))), None, None],
+                BiOp::Times => [Some((Instruction::IMUL, UwUTy::Native(&NativeType::Primitive(Primitive::I64)))), Some((Instruction::FMUL, UwUTy::Native(&NativeType::Primitive(Primitive::I64)))), None, None],
+                BiOp::Divide => [Some((Instruction::IDIV, UwUTy::Native(&NativeType::Primitive(Primitive::I64)))), Some((Instruction::FDIV, UwUTy::Native(&NativeType::Primitive(Primitive::I64)))), None, None],
+                BiOp::DoubleEquals => [Some((Instruction::CMP(Cond::Eq), UwUTy::Native(&NativeType::Primitive(Primitive::Bool)))), Some((Instruction::CMP(Cond::Eq), UwUTy::Native(&NativeType::Primitive(Primitive::Bool)))), Some((Instruction::CMP(Cond::Eq), UwUTy::Native(&NativeType::Primitive(Primitive::Bool)))), None],  // TODO
+                BiOp::GreaterThan => [Some((Instruction::CMP(Cond::IGr), UwUTy::Native(&NativeType::Primitive(Primitive::Bool)))), Some((Instruction::CMP(Cond::FGr), UwUTy::Native(&NativeType::Primitive(Primitive::Bool)))), None, None],
+                BiOp::GreatherThanEquals => [Some((Instruction::CMP(Cond::IGrE), UwUTy::Native(&NativeType::Primitive(Primitive::Bool)))), Some((Instruction::CMP(Cond::FGrE), UwUTy::Native(&NativeType::Primitive(Primitive::Bool)))), None, None],
+                BiOp::LessThan => [Some((Instruction::CMP(Cond::ILe), UwUTy::Native(&NativeType::Primitive(Primitive::Bool)))), Some((Instruction::CMP(Cond::FLe), UwUTy::Native(&NativeType::Primitive(Primitive::Bool)))), None, None],
+                BiOp::LessThanEquals => [Some((Instruction::CMP(Cond::ILeE), UwUTy::Native(&NativeType::Primitive(Primitive::Bool)))), Some((Instruction::CMP(Cond::FLeE), UwUTy::Native(&NativeType::Primitive(Primitive::Bool)))), None, None],
+            };
+
+            let gotten = &matrix[match l_type {
+                UwUTy::Native(&NativeType::Primitive(Primitive::I64)) => 0,
+                UwUTy::Native(&NativeType::Primitive(Primitive::F64)) => 1,
+                UwUTy::Native(&NativeType::Primitive(Primitive::Bool)) => 2,
+                UwUTy::Native(&NativeType::Primitive(Primitive::Unit)) => panic!("cannot perform operations on unit type"),
+                UwUTy::Struct(_) => 3,
+                UwUTy::Array(_) => panic!("no operations are supported on arrays"),
+            }];
+
+            let ins_res = match gotten {
+                Some(v) => {
+                    v
+                }
+                None => panic!("I don't get paid enough for this shit, you're on your own"),
+            };
+            out.push(ins_res.0.clone());
+            out.current().values.pop();
+            out.current().values.pop();
+            out.current().values.push((None, ins_res.1.pseudo_copy()))
+        }
         Expression::FunctionInvocation { name, args } => {
             let resolved = import_mapping[name].as_func().expect("can't call a type (use new)");
             let exp_args = resolved.args();
@@ -266,32 +338,49 @@ fn compile_expr<'a, 'b, 'c>(expr: &Expression, import_mapping: &HashMap<String, 
             assert!(num_args == args.len(), "wrong number of args");
             for (arg, expr) in exp_args.iter().zip(args) {
                 compile_expr(expr, import_mapping, out);  // NOTE: this could be backwards
-                assert!(out.current().values.last().unwrap().1 == arg.1);
+                assert!(out.current().values.last().unwrap().1 == arg.1, "incorrect argument type (expected {:?}, found {:?})", arg.1, out.current().values.last().unwrap().1);
             }
             for _ in 0..exp_args.len() {
                 out.current().values.pop();
             }
             out.current().values.push((None, resolved.return_type()));
-            out.calls_to_update.push((resolved, out.out.len()));
-            out.push(Instruction::CALL(u64::MAX, num_args as u32));
+            match &resolved {
+                UwUFunc::Native(v) => {
+                    out.push(Instruction::NATIVE(v.id as usize));
+                }
+                UwUFunc::Defined { .. } => {
+                    out.calls_to_update.push((resolved, out.out.len()));
+                    out.push(Instruction::CALL(u64::MAX, num_args as u32));
+                }
+            }
         }
         Expression::Instantiation { name, args } => {
             let resolved = import_mapping[name].as_type().expect("can't instantiate a function");
             match resolved {
                 UwUTy::Struct(v) => {
                     assert!(v.fields.len() == args.len(), "wrong number of args");
-                    for (field, expr) in v.fields.iter().zip(args) {
+                    for (field, expr) in v.fields.iter().zip(args).rev() {
                         compile_expr(expr, import_mapping, out);  // NOTE: this could be backwards
                         assert!(out.current().values.last().unwrap().1 == field.1);
                     }
                     for _ in 0..v.fields.len() {
                         out.current().values.pop();
                     }
-                    out.push(Instruction::ALLOC(resolved.to_info()));
-                    out.current().values.push((None, resolved))
+                    let found = out.type_m.get(&resolved);
+                    let num = match found {
+                        Some(v) => *v,
+                        None => {
+                            let n = out.types.len();
+                            out.types.push(resolved.to_info());
+                            out.type_m.insert(resolved.pseudo_copy(), n);
+                            n
+                        }
+                    };
+                    out.push(Instruction::ALLOC(num));
+                    out.current().values.push((None, resolved));
                 }
                 UwUTy::Native(_) => panic!("can't instantiate a native type"),
-                UwUTy::Array(_) => todo!(),
+                UwUTy::Array(_) => panic!("can't instantiate an array"),
             }
         }
         Expression::VarAccess(name) => {
@@ -311,23 +400,62 @@ fn compile_expr<'a, 'b, 'c>(expr: &Expression, import_mapping: &HashMap<String, 
             out.push(Instruction::COPY { from_top: f.0, in_frame: f.1 });
             out.current().values.push((None, f.2));
         }
+        Expression::PropertyAccess(value, name) => {
+            compile_expr(&*value, import_mapping, out);
+            let tpe = out.current().values.last().unwrap().1.pseudo_copy();
+            let (idx, field_tpe) = match tpe {
+                UwUTy::Struct(s) => {
+                    let (idx, (_, field_tpe)) = s.fields.iter().enumerate().find(|x| &x.1.0 == name).expect("field not found");
+                    (idx, field_tpe)
+                }
+                UwUTy::Native(_) => panic!("cannot access field of native type"),
+                UwUTy::Array(_) => {
+                    assert!(name == "size" || name == "wength", "field not found");
+                    out.push(Instruction::GET(0));
+                    (0, &UwUTy::Native(I64))
+                }
+            };
+            out.current().values.pop();
+            out.current().values.push((None, field_tpe.pseudo_copy()));
+            out.push(Instruction::GET(idx as u32));
+        }
+        Expression::ArrayCreation { typename, degree, num } => {
+            let inner = import_mapping[typename].as_type().expect("type not found");
+            let mut tpe = inner.pseudo_copy();
+            for _ in 0..*degree {
+                tpe = UwUTy::Array(Box::new(tpe));
+            }
+
+            compile_expr(&*num, import_mapping, out);
+            assert!(&out.current().values.last().unwrap().1 == &UwUTy::Native(I64), "array lengths must be integers");
+            out.push(Instruction::ALLOCA(inner.as_tpe(out)));
+            out.current().values.pop();
+            out.current().values.push((None, tpe));
+        }
+        Expression::ArrayAccess { arr, idx } => {
+            compile_expr(arr, import_mapping, out);
+            let item_type = match &out.current().values.last().unwrap().1 {
+                UwUTy::Array(v) => v.pseudo_copy(),
+                _ => panic!("cannot index non-array type")
+            };
+            compile_expr(&*idx, import_mapping, out);
+            let idx_type = &out.current().values.last().unwrap().1;
+            assert!(idx_type == &UwUTy::Native(I64), "arrays must be indexed with integers");
+            out.push(Instruction::GETA);
+            out.current().values.pop();
+            out.current().values.pop();
+            out.current().values.push((None, item_type));
+        }
     }
 }
 
-fn compile_function<'a, 'b, 'c>(func: &UwUFunc<'a, 'b>, import_mapping: &HashMap<String, Importable<'a, 'b>>, out: &mut InstructionBuilder<'a, 'b, 'c>) {
-    out.starts.insert(func.pseudo_copy(), out.out.len());
-    out.stack.clear();
-    out.stack.push(CompileStackFrame { values: vec![] });
-    let (fqn, args, return_type, data) =  match func {
-        UwUFunc::Native(_) => panic!(),
-        UwUFunc::Defined { fqn, args, return_type, data } => (fqn, args, return_type, *data)
-    };
-    for item in args {
-        out.current().values.push((Some(item.0.clone()), item.1.pseudo_copy()))
-    }
-    for item in data {
+fn compile_block<'a, 'b, 'c>(block: &Vec<Statement<'a>>, import_mapping: &HashMap<String, Importable<'a, 'b>>, out: &mut InstructionBuilder<'a, 'b>) {
+    for item in block {
         match item {
-            Statement::VariableDeclaration { mutable, name, value } => todo!(),
+            Statement::VariableDeclaration { mutable, name, value } => {
+                compile_expr(value, import_mapping, out);
+                out.current().values.last_mut().unwrap().0 = Some(name.clone());
+            }
             Statement::Assignment(name, value) => {
                 let mut found = None;
                 for (fridx, frame) in out.stack.iter().rev().enumerate() {
@@ -343,35 +471,125 @@ fn compile_function<'a, 'b, 'c>(func: &UwUFunc<'a, 'b>, import_mapping: &HashMap
                 let dst = found.expect("couldn't find variable");
                 compile_expr(value, import_mapping, out);
                 assert!(out.current().values.last().unwrap().1 == dst.2, "variable type mismatch");
-                out.push(Instruction::COPY { from_top: dst.0, in_frame: dst.1 });
+                out.push(Instruction::MOV { from_top: dst.0, in_frame: dst.1 });
+                out.current().values.pop();
+            }
+            Statement::PropertySet(left, name, right) => {
+                compile_expr(left, import_mapping, out);
+                let tpe = out.current().values.last().unwrap().1.pseudo_copy();
+                let (idx, field_tpe) = match tpe {
+                    UwUTy::Struct(s) => {
+                        let (idx, (_, field_tpe)) = s.fields.iter().enumerate().find(|x| &x.1.0 == name).expect("field not found");
+                        (idx, field_tpe.pseudo_copy())
+                    }
+                    UwUTy::Native(_) => panic!("cannot set property '{}' of native type", name),
+                    UwUTy::Array(_) => panic!("cannot set field '{}' of array", name),
+                };
+
+                compile_expr(right, import_mapping, out);
+                assert!(&field_tpe == &out.current().values.last().unwrap().1, "field type mismatch");
+                out.push(Instruction::SET(idx as u32));
+                out.current().values.pop();
+                out.current().values.pop();
             }
             Statement::Expression(e) => compile_expr(e, import_mapping, out),
-            Statement::If { condition, block } => todo!(),
-            Statement::While { condition, block } => todo!(),
+            Statement::If { condition, block } => {
+                compile_expr(condition, import_mapping, out);
+                assert!(&out.current().values.last().unwrap().1 == &UwUTy::Native(BOOL), "if condition must be a boolean");
+                out.current().values.pop();
+                out.push(Instruction::PUSH(0));
+                out.push(Instruction::HALT);
+                let idx = out.out.len();
+                out.stack.push(CompileStackFrame { values: vec![] });
+                out.push(Instruction::PUSHFR);
+                compile_block(block, import_mapping, out);
+                out.push(Instruction::POPFR);
+                out.stack.pop();
+                out.out[idx - 1] = Instruction::BRANCH(Cond::Eq, out.out.len() as u64);
+            }
+            Statement::While { condition, block } => {
+                let start = out.out.len();
+                out.stack.push(CompileStackFrame { values: vec![] });
+                out.push(Instruction::PUSHFR);
+
+                compile_expr(condition, import_mapping, out);
+                assert!(&out.current().values.last().unwrap().1 == &UwUTy::Native(BOOL), "while condition must be a boolean");
+
+                out.push(Instruction::PUSH(0));
+                let idx = out.out.len();
+                out.push(Instruction::BRANCH(Cond::Eq, u64::MAX));
+                out.current().values.pop();
+
+                compile_block(block, import_mapping, out);
+
+                out.push(Instruction::POPFR);
+                out.push(Instruction::BRANCH(Cond::Always, start as u64));
+                out.stack.pop();
+                out.out[idx] = Instruction::BRANCH(Cond::NEq, out.out.len() as u64);
+                out.push(Instruction::POPFR);
+            }
             Statement::Break => todo!(),
             Statement::Return(_) => todo!(),
+            Statement::ArraySet { arr, indexes, value } => {
+                compile_expr(arr, import_mapping, out);
+                let item_type = match &out.current().values.last().unwrap().1 {
+                    UwUTy::Array(v) => v.pseudo_copy(),
+                    _ => panic!("cannot index non-array type")
+                };
+                let idx = &indexes[0];
+                assert!(indexes.len() == 1, "multidimensional arrays are not yet supported");
+                compile_expr(idx, import_mapping, out);
+                let idx_type = &out.current().values.last().unwrap().1;
+                assert!(idx_type == &UwUTy::Native(I64), "arrays must be indexed with integers");
+                compile_expr(value, import_mapping, out);
+                assert!((&out.current().values.last().unwrap().1).pseudo_copy() == item_type, "incorrect type for item");
+                out.push(Instruction::SETA);
+                out.current().values.pop();
+                out.current().values.pop();
+                out.current().values.pop();
+            }
         }
     }
 }
 
-struct InstructionBuilder<'a, 'b, 'c> {
-    out: Vec<Instruction<'c>>,
+fn compile_function<'a, 'b, 'c>(func: &UwUFunc<'a, 'b>, import_mapping: &HashMap<String, Importable<'a, 'b>>, out: &mut InstructionBuilder<'a, 'b>) {
+    out.starts.insert(func.pseudo_copy(), out.out.len());
+    out.stack.clear();
+    out.stack.push(CompileStackFrame { values: vec![] });
+    let (fqn, args, return_type, data) =  match func {
+        UwUFunc::Native(_) => panic!(),
+        UwUFunc::Defined { fqn, args, return_type, data } => (fqn, args, return_type, *data)
+    };
+    for item in args {
+        out.current().values.push((Some(item.0.clone()), item.1.pseudo_copy()))
+    }
+
+    compile_block(data, import_mapping, out);
+
+    out.push(Instruction::PUSH(0));
+    out.push(Instruction::RET);
+}
+
+pub struct InstructionBuilder<'a, 'b> {
+    out: Vec<Instruction>,
     calls_to_update: Vec<(UwUFunc<'a, 'b>, usize)>,
     stack: Vec<CompileStackFrame<'b>>,
     starts: HashMap<UwUFunc<'a, 'b>, usize>,
-    types: HashMap<UwUTy<'b>, FieldInfo>
+    type_m: HashMap<UwUTy<'b>, usize>,
+    pub types: Vec<FieldInfo>
 }
 
+#[derive(Debug)]
 struct CompileStackFrame<'b> {
     values: Vec<(Option<String>, UwUTy<'b>)>
 }
 
-impl<'a, 'b, 'c> InstructionBuilder<'a, 'b, 'c> {
+impl<'a, 'b> InstructionBuilder<'a, 'b> {
     fn current(&mut self) -> &mut CompileStackFrame<'b> {
         self.stack.last_mut().unwrap()
     }
 
-    fn push(&mut self, ins: Instruction<'c>) {
+    fn push(&mut self, ins: Instruction) {
         self.out.push(ins)
     }
 }
