@@ -10,7 +10,7 @@
 
 use std::{collections::HashMap, slice::Iter};
 
-use crate::{Declaration, ParsedFile, NameTypePair, stdlib::{NativeType, NativeFunction, PRIMITIVE_TYPES, UNIT, I64, BOOL, F64, STDLIB_FUNCS}, runtime::{Instruction, FieldInfo, Cond, Tpe}, Expression, Statement, BiOp, Type};
+use crate::{Declaration, ParsedFile, NameTypePair, stdlib::{NativeType, NativeFunction, PRIMITIVE_TYPES, UNIT, I64, BOOL, F64, STDLIB_FUNCS}, runtime::{Instruction, FieldInfo, Cond, Tpe}, Expression, Statement, BiOp, Type, Loc};
 
 #[derive(Clone, Debug, PartialEq, Hash, Eq)]
 pub struct UwUStrc<'b> {
@@ -122,8 +122,8 @@ impl<'b> UwUTy<'b> {
 
 fn resolve<'a, 'b>(mapping: &HashMap<String, Importable<'a, 'b>>, tpe: &Type) -> Option<UwUTy<'b>> {
     match tpe {
-        Type::Simple(t) => mapping[t].as_type(),
-        Type::Array(t) => Some(UwUTy::Array(Box::new(resolve(mapping, &*t)?)))
+        Type::Simple(t, loc) => mapping[t].as_type(),
+        Type::Array(t, loc) => Some(UwUTy::Array(Box::new(resolve(mapping, &*t)?)))
     }
 }
 
@@ -138,10 +138,10 @@ pub fn compile<'a, 'b, 'c>(files: &'a Vec<UwUFi<'a>>, entrypoint: Vec<String>) -
     for file in files {
         for decl in &file.content {
             match decl {
-                Declaration::Function { name, args, return_type, block } => {
+                Declaration::Function { name, args, return_type, block, loc } => {
                     functions.push((UwUFunc::Defined { fqn: file.fqn.plus(name), args: vec![], return_type: UwUTy::Native(UNIT), data: block }, file, decl));
                 }
-                Declaration::Struct { name, fields } => {
+                Declaration::Struct { name, fields, loc } => {
                     // structs.push((UwUStrc { fqn: file.fqn.plus(name), fields: vec![] }, file, decl));
                     structs_s.push(UwUStrc { fqn: file.fqn.plus(name), fields: vec![] });
                     structs_f.push(file);
@@ -159,7 +159,7 @@ pub fn compile<'a, 'b, 'c>(files: &'a Vec<UwUFi<'a>>, entrypoint: Vec<String>) -
         let mut raw_imports = vec![];
         for decl in &file.content {
             match decl {
-                Declaration::Import { path, item } => { raw_imports.push(UnresolvedImport { fqn: path.plus(item), name: item.clone() }) }
+                Declaration::Import { path, item, loc } => { raw_imports.push(UnresolvedImport { fqn: path.plus(item), name: item.clone() }) }
                 _ => {}
             }
         }
@@ -211,11 +211,11 @@ pub fn compile<'a, 'b, 'c>(files: &'a Vec<UwUFi<'a>>, entrypoint: Vec<String>) -
         let file = &structs_f[idx];
         let decl = &structs_d[idx];
         let fields = match decl {
-            Declaration::Struct { name, fields } => fields,
+            Declaration::Struct { name, fields, loc } => fields,
             _ => panic!()
         };
         let resolved_fields = fields.iter().map(|pair| {
-            let name = pair.name.clone();
+            let (name, loc) = pair.name.clone();
             let type_name = &pair.tpe;
 
             let resolved_type = resolve(&mapping[file], type_name).expect("cannot use a function as a type");  // TODO: error checking instead of just panic if not found
@@ -230,13 +230,13 @@ pub fn compile<'a, 'b, 'c>(files: &'a Vec<UwUFi<'a>>, entrypoint: Vec<String>) -
     // Resolve function arg+return types
     for (func, file, decl) in &functions {
         let (args, rtype, data) = match decl {
-            Declaration::Function { name, args, return_type, block } => (args.clone(), return_type.clone(), block),
+            Declaration::Function { name, args, return_type, block, loc } => (args.clone(), return_type.clone(), block),
             _ => panic!()
         };
 
-        let resolved_ret_type = resolve(&mapping[file], &rtype.unwrap_or(Type::Simple("unit".to_string()))).expect("cannot use a function as a type");
+        let resolved_ret_type = resolve(&mapping[file], &rtype.unwrap_or(Type::Simple("unit".to_string(), decl.loc().clone() /* FIXME */))).expect("cannot use a function as a type");
         let resolved_args = args.iter().map(|arg| {
-            (arg.name.clone(), resolve(&mapping[file], &arg.tpe).expect("cannot use a function as a type"))
+            (arg.name.0.clone(), resolve(&mapping[file], &arg.tpe).expect("cannot use a function as a type"))
         }).collect();
         let new = &mut UwUFunc::Defined { fqn: func.fqn(), args: resolved_args, return_type: resolved_ret_type, data };
         std::mem::swap(new, unsafe { &mut *(func as *const UwUFunc as *mut UwUFunc) });
@@ -265,7 +265,7 @@ pub fn compile<'a, 'b, 'c>(files: &'a Vec<UwUFi<'a>>, entrypoint: Vec<String>) -
 
 fn compile_expr<'a, 'b, 'c>(expr: &Expression, import_mapping: &HashMap<String, Importable<'a, 'b>>, out: &mut InstructionBuilder<'a, 'b>) {
     match expr {
-        Expression::Literal(v) => {
+        Expression::Literal(v, loc) => {
             let tpe = match v {
                 crate::Literal::Int(n) => { out.push(Instruction::PUSH(*n)); UwUTy::Native(I64) }
                 crate::Literal::Float(n) => { out.push(Instruction::PUSH(n.as_int())); UwUTy::Native(F64) }
@@ -286,8 +286,8 @@ fn compile_expr<'a, 'b, 'c>(expr: &Expression, import_mapping: &HashMap<String, 
             };
             out.current().values.push((None, tpe));
         }
-        Expression::Parenthesis(v) => compile_expr(v, import_mapping, out),
-        Expression::BiOperation(l, op, r) => {
+        Expression::Parenthesis(v, loc) => compile_expr(v, import_mapping, out),
+        Expression::BiOperation(l, op, r, loc) => {
             compile_expr(&*l, import_mapping, out);
             let l_type = &out.current().values.last().unwrap().1.pseudo_copy();
             compile_expr(&*r, import_mapping, out);
@@ -330,7 +330,7 @@ fn compile_expr<'a, 'b, 'c>(expr: &Expression, import_mapping: &HashMap<String, 
             out.current().values.pop();
             out.current().values.push((None, ins_res.1.pseudo_copy()))
         }
-        Expression::FunctionInvocation { name, args } => {
+        Expression::FunctionInvocation { name, args, loc } => {
             let resolved = import_mapping[name].as_func().expect("can't call a type (use new)");
             let exp_args = resolved.args();
             let num_args = exp_args.len();
@@ -354,7 +354,7 @@ fn compile_expr<'a, 'b, 'c>(expr: &Expression, import_mapping: &HashMap<String, 
                 }
             }
         }
-        Expression::Instantiation { name, args } => {
+        Expression::Instantiation { name, args, loc } => {
             let resolved = import_mapping[name].as_type().expect("can't instantiate a function");
             match resolved {
                 UwUTy::Struct(v) => {
@@ -383,7 +383,7 @@ fn compile_expr<'a, 'b, 'c>(expr: &Expression, import_mapping: &HashMap<String, 
                 UwUTy::Array(_) => panic!("can't instantiate an array"),
             }
         }
-        Expression::VarAccess(name) => {
+        Expression::VarAccess(name, loc) => {
             let mut found = None;
             for (fridx, frame) in out.stack.iter().rev().enumerate() {
                 for (idx, item) in frame.values.iter().enumerate().rev() {
@@ -400,7 +400,7 @@ fn compile_expr<'a, 'b, 'c>(expr: &Expression, import_mapping: &HashMap<String, 
             out.push(Instruction::COPY { from_top: f.0, in_frame: f.1 });
             out.current().values.push((None, f.2));
         }
-        Expression::PropertyAccess(value, name) => {
+        Expression::PropertyAccess(value, name, loc) => {
             compile_expr(&*value, import_mapping, out);
             let tpe = out.current().values.last().unwrap().1.pseudo_copy();
             let (idx, field_tpe) = match tpe {
@@ -419,7 +419,7 @@ fn compile_expr<'a, 'b, 'c>(expr: &Expression, import_mapping: &HashMap<String, 
             out.current().values.push((None, field_tpe.pseudo_copy()));
             out.push(Instruction::GET(idx as u32));
         }
-        Expression::ArrayCreation { typename, degree, num } => {
+        Expression::ArrayCreation { typename, degree, num, loc } => {
             let inner = import_mapping[typename].as_type().expect("type not found");
             let mut tpe = inner.pseudo_copy();
             for _ in 0..*degree {
@@ -432,7 +432,7 @@ fn compile_expr<'a, 'b, 'c>(expr: &Expression, import_mapping: &HashMap<String, 
             out.current().values.pop();
             out.current().values.push((None, tpe));
         }
-        Expression::ArrayAccess { arr, idx } => {
+        Expression::ArrayAccess { arr, idx, loc } => {
             compile_expr(arr, import_mapping, out);
             let item_type = match &out.current().values.last().unwrap().1 {
                 UwUTy::Array(v) => v.pseudo_copy(),
@@ -449,14 +449,31 @@ fn compile_expr<'a, 'b, 'c>(expr: &Expression, import_mapping: &HashMap<String, 
     }
 }
 
-fn compile_block<'a, 'b, 'c>(block: &Vec<Statement<'a>>, import_mapping: &HashMap<String, Importable<'a, 'b>>, out: &mut InstructionBuilder<'a, 'b>) {
+macro_rules! unwrap_or_ret {
+    ($value:expr, $err:expr) => {
+        match $value {
+            Some(v) => v,
+            None => return Err($err)
+        }
+    };
+}
+
+macro_rules! asrt {
+    ($value:expr, $err:expr) => {
+        if !$value {
+            return Err($err)
+        }
+    }
+}
+
+fn compile_block<'a, 'b, 'c>(block: &Vec<Statement<'a>>, import_mapping: &HashMap<String, Importable<'a, 'b>>, out: &mut InstructionBuilder<'a, 'b>) -> Result<(), CompilerError<'a, 'b>> {
     for item in block {
         match item {
-            Statement::VariableDeclaration { mutable, name, value } => {
+            Statement::VariableDeclaration { mutable, name, value, loc } => {
                 compile_expr(value, import_mapping, out);
                 out.current().values.last_mut().unwrap().0 = Some(name.clone());
             }
-            Statement::Assignment(name, value) => {
+            Statement::Assignment(name, value, loc) => {
                 let mut found = None;
                 for (fridx, frame) in out.stack.iter().rev().enumerate() {
                     for (idx, item) in frame.values.iter().enumerate().rev() {
@@ -468,13 +485,13 @@ fn compile_block<'a, 'b, 'c>(block: &Vec<Statement<'a>>, import_mapping: &HashMa
                         }
                     }
                 }
-                let dst = found.expect("couldn't find variable");
+                let dst = unwrap_or_ret!(found, CompilerError { loc: *loc, tpe: ErrorType::VariableNotFound(name.clone()) });
                 compile_expr(value, import_mapping, out);
-                assert!(out.current().values.last().unwrap().1 == dst.2, "variable type mismatch");
+                asrt!(out.current().values.last().unwrap().1 == dst.2, CompilerError { loc: value.loc(), tpe: ErrorType::TypeMismatch { expected: dst.2, found: out.current().values.last().unwrap().1.pseudo_copy() } });
                 out.push(Instruction::MOV { from_top: dst.0, in_frame: dst.1 });
                 out.current().values.pop();
             }
-            Statement::PropertySet(left, name, right) => {
+            Statement::PropertySet(left, name, right, loc) => {
                 compile_expr(left, import_mapping, out);
                 let tpe = out.current().values.last().unwrap().1.pseudo_copy();
                 let (idx, field_tpe) = match tpe {
@@ -492,8 +509,8 @@ fn compile_block<'a, 'b, 'c>(block: &Vec<Statement<'a>>, import_mapping: &HashMa
                 out.current().values.pop();
                 out.current().values.pop();
             }
-            Statement::Expression(e) => compile_expr(e, import_mapping, out),
-            Statement::If { condition, block } => {
+            Statement::Expression(e, loc) => compile_expr(e, import_mapping, out),
+            Statement::If { condition, block, loc } => {
                 compile_expr(condition, import_mapping, out);
                 assert!(&out.current().values.last().unwrap().1 == &UwUTy::Native(BOOL), "if condition must be a boolean");
                 out.current().values.pop();
@@ -507,7 +524,7 @@ fn compile_block<'a, 'b, 'c>(block: &Vec<Statement<'a>>, import_mapping: &HashMa
                 out.stack.pop();
                 out.out[idx - 1] = Instruction::BRANCH(Cond::Eq, out.out.len() as u64);
             }
-            Statement::While { condition, block } => {
+            Statement::While { condition, block, loc } => {
                 let start = out.out.len();
                 out.stack.push(CompileStackFrame { values: vec![] });
                 out.push(Instruction::PUSHFR);
@@ -528,9 +545,9 @@ fn compile_block<'a, 'b, 'c>(block: &Vec<Statement<'a>>, import_mapping: &HashMa
                 out.out[idx] = Instruction::BRANCH(Cond::NEq, out.out.len() as u64);
                 out.push(Instruction::POPFR);
             }
-            Statement::Break => todo!(),
-            Statement::Return(_) => todo!(),
-            Statement::ArraySet { arr, indexes, value } => {
+            Statement::Break(loc) => todo!(),
+            Statement::Return(_, loc) => todo!(),
+            Statement::ArraySet { arr, indexes, value, loc } => {
                 compile_expr(arr, import_mapping, out);
                 let item_type = match &out.current().values.last().unwrap().1 {
                     UwUTy::Array(v) => v.pseudo_copy(),
@@ -550,6 +567,8 @@ fn compile_block<'a, 'b, 'c>(block: &Vec<Statement<'a>>, import_mapping: &HashMa
             }
         }
     }
+
+    Ok(())
 }
 
 fn compile_function<'a, 'b, 'c>(func: &UwUFunc<'a, 'b>, import_mapping: &HashMap<String, Importable<'a, 'b>>, out: &mut InstructionBuilder<'a, 'b>) {
@@ -653,4 +672,15 @@ impl Intify for bool {
     fn as_int(self) -> i64 {
         if self { 1 } else { 0 }
     }
+}
+
+pub struct CompilerError<'a, 'b> {
+    pub tpe: ErrorType<'b>,
+    pub loc: Loc<'a>
+}
+
+pub enum ErrorType<'b> {
+    VariableNotFound(String),
+    TypeMismatch { expected: UwUTy<'b>, found: UwUTy<'b> },
+    FieldNotFound { tpe: UwUTy<'b>, name: String }
 }
