@@ -35,11 +35,11 @@
 //     stdlib().iter().map(|x| x.to_runtime()).collect()
 // }
 
-use std::{fmt::Debug, hash::Hash, io::Write};
+use std::{fmt::Debug, hash::Hash, io::{Write, Read}, fs::File};
 
 use once_cell::sync::Lazy;
 
-use crate::{newcompiler::{UwUTy, Primitive}, runtime::VM};
+use crate::{newcompiler::{UwUTy, Primitive, UwUFi}, runtime::VM, parser::{UwUInpFile, uwu_parser, lexer}};
 
 pub struct NativeFunction<'b> {
     pub id: u64,
@@ -77,7 +77,7 @@ impl<'b> Debug for NativeFunction<'b> {
     }
 }
 
-pub static STDLIB_FUNCS: Lazy<[NativeFunction; 5]> = Lazy::new(|| {[
+pub static STDLIB_FUNCS: Lazy<[NativeFunction; 3]> = Lazy::new(|| {[
         NativeFunction { id: 0, fqn: vec!["io", "wwite"], args: vec![("chaw", UwUTy::Native(I64))], ret: UwUTy::Native(UNIT), func: |vm| {
             let value = vm.popi() as u8;
             std::io::stdout().write(&[value]).unwrap();
@@ -87,38 +87,25 @@ pub static STDLIB_FUNCS: Lazy<[NativeFunction; 5]> = Lazy::new(|| {[
             std::io::stdout().flush().unwrap();
             vm.pushi(0);
         } },
-        NativeFunction { id: 2, fqn: vec!["io", "pwintwn"], args: vec![("stwing", UwUTy::Array(Box::new(UwUTy::Native(I64))))], ret: UwUTy::Native(UNIT), func: |vm| {
-            let value = vm.pop();
-            let found = &vm.heap[&value.0];
-            match found {
-                crate::runtime::UwUIns::Arr { mark: _, item_type, items } => {
-                    let mut stdout = std::io::stdout();
-                    stdout.write(items.iter().map(|x| x.unwrap() as u8).collect::<Vec<_>>().as_slice()).unwrap();
-                    stdout.write(&['\n' as u8]).unwrap();
-                    stdout.flush().unwrap();
-                }
-                crate::runtime::UwUIns::Struct { mark: _, tpe, data } => panic!()
-            };
-            vm.pushi(0);
-        } },
-        NativeFunction { id: 3, fqn: vec!["io", "pwint"], args: vec![("stwing", UwUTy::Array(Box::new(UwUTy::Native(I64))))], ret: UwUTy::Native(UNIT), func: |vm| {
-            let value = vm.pop();
-            let found = &vm.heap[&value.0];
-            match found {
-                crate::runtime::UwUIns::Arr { mark: _, item_type, items } => {
-                    let mut stdout = std::io::stdout();
-                    stdout.write(items.iter().map(|x| x.unwrap() as u8).collect::<Vec<_>>().as_slice()).unwrap();
-                    stdout.flush().unwrap();
-                }
-                crate::runtime::UwUIns::Struct { mark: _, tpe, data } => panic!()
-            };
-            vm.pushi(0);
-        } },
-        NativeFunction { id: 4, fqn: vec!["mem", "gc"], args: vec![], ret: UwUTy::Native(UNIT), func: |vm| {
+        NativeFunction { id: 2, fqn: vec!["mem", "gc"], args: vec![], ret: UwUTy::Native(UNIT), func: |vm| {
             vm.gc();
             vm.pushi(0);
         } },
     ]});
+
+fn read_file(mut f: File) -> String {
+    let mut buf = String::new();
+    f.read_to_string(&mut buf).unwrap();
+    buf
+}
+
+pub fn stdlib_files<'a>() -> Vec<UwUInpFile> {
+    vec![
+        UwUInpFile { content: read_file(File::open("src/stdlib/io.uwu").unwrap()), fqn: vec!["io".to_string()] },
+        UwUInpFile { content: read_file(File::open("src/stdlib/cowwections.uwu").unwrap()), fqn: vec!["cowwections".to_string()] }
+        // UwUFi { fqn: vec!["io".to_string()], content: uwu_parser::file(lexer::tokenize(io_file.as_str(), &UwUInpFile { content: io_file }).unwrap().as_slice()).unwrap().content },
+    ]
+}
 
 #[derive(Debug, PartialEq, Hash, Eq, Clone)]
 pub enum NativeType {

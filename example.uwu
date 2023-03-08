@@ -1,43 +1,7 @@
 package main;
 
 impowt io::pwintwn;
-impowt io::wwite;
-
-stwuct IntWist {
-    content: i64[],
-    wength: i64
-
-    fuwn push(inp: i64) {
-        sewf.content[sewf.wength] = inp;
-        if sewf.wength + 1 == sewf.content.wength {
-            wet n = new i64[sewf.content.wength * 2];
-            vaw i = 0;
-            whiwe i < sewf.content.wength {
-                n[i] = sewf.content[i];
-                i = i + 1;
-            }
-            sewf.content = n;
-        }
-        sewf.wength = sewf.wength + 1;
-    }
-}
-
-fuwn intPwintwn(v: i64) {
-    vaw out = v;
-    wet stwing = new IntWist(new i64[2], 0);
-    whiwe out > 0 {
-        wet digit = out % 10;
-        out = out / 10;
-        stwing.push(digit + '0');
-    }
-
-    vaw i = stwing.wength;
-    whiwe i >= 0 {
-        wwite(stwing.content[i]);
-        i = i - 1;
-    }
-    pwintwn("");
-}
+impowt cowwections::IntWist;
 
 fuwn main() {
     wet wist = new IntWist(new i64[2], 0);
@@ -45,8 +9,5 @@ fuwn main() {
     wist.push(357);
     wist.push(4);
     wist.push(5);
-    intPwintwn(wist.content[0]);
-    intPwintwn(wist.content[1]);
-    intPwintwn(wist.content[2]);
-    intPwintwn(wist.content[3]);
+    pwintwn(wist);
 }

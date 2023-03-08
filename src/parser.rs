@@ -50,7 +50,7 @@ impl<'a> Eq for Literal<'a> {}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Symbol {
-    Dot, Plus, Minus, Times, Divide, Equals, Percent,
+    Dot, Plus, Minus, Times, Divide, Equals, Percent, Bang,
     OpenBrace, CloseBrace, OpenParen, CloseParen, OpenBracket, CloseBracket,
     Semicolon, Colon, Comma, GreaterThan, LessThan
 }
@@ -66,7 +66,7 @@ pub enum Token<'a> {
 // AST
 #[derive(Clone, Debug, PartialEq, Hash, Eq)]
 pub enum BiOp {
-    Plus, Minus, Times, Divide, Mod, DoubleEquals, GreaterThan, GreatherThanEquals, LessThan, LessThanEquals
+    Plus, Minus, Times, Divide, Mod, DoubleEquals, NotEquals, GreaterThan, GreatherThanEquals, LessThan, LessThanEquals
 }
 
 #[derive(Clone, Debug, PartialEq, Hash, Eq)]
@@ -121,7 +121,8 @@ impl<'a> Declaration<'a> {
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct UwUInpFile {
-    pub content: String
+    pub content: String,
+    pub fqn: Vec<String>
 }
 
 impl Debug for UwUInpFile {
@@ -193,9 +194,10 @@ peg::parser!{
         rule greaterthan() -> Symbol = ">" { Symbol::GreaterThan }
         rule lessthan() -> Symbol = "<" { Symbol::LessThan }
         rule percent() -> Symbol = "%" { Symbol::Percent }
+        rule bang() -> Symbol = "!" { Symbol::Bang }
 
         rule symbol() -> Symbol
-        = dot() / plus() / minus() / times() / divide() / equals() / openbrace() / closebrace() / openparen() / closeparen() / openbracket() / closebracket() / semicolon() / colon() / comma() / greaterthan() / lessthan() / percent()
+        = dot() / plus() / minus() / times() / divide() / equals() / openbrace() / closebrace() / openparen() / closeparen() / openbracket() / closebracket() / semicolon() / colon() / comma() / greaterthan() / lessthan() / percent() / bang()
 
         rule sym() -> Token<'input>
         = le:position!() s:symbol() ri:position!() { Token::Symbol(s, Loc::new(file, le, ri)) }
@@ -336,6 +338,7 @@ peg::parser!{
             x:(@) [Token::Symbol(Symbol::LessThan, _)] y:@ { Expression::BiOperation(Box::new(x.clone()), BiOp::LessThan, Box::new(y.clone()), x.loc().to(&y.loc())) }
             x:(@) [Token::Symbol(Symbol::LessThan, _)] [Token::Symbol(Symbol::Equals, _)] y:@ { Expression::BiOperation(Box::new(x.clone()), BiOp::LessThanEquals, Box::new(y.clone()), x.loc().to(&y.loc())) }
             x:(@) [Token::Symbol(Symbol::Equals, _)] [Token::Symbol(Symbol::Equals, _)] y:@ { Expression::BiOperation(Box::new(x.clone()), BiOp::DoubleEquals, Box::new(y.clone()), x.loc().to(&y.loc())) }
+            x:(@) [Token::Symbol(Symbol::Bang, _)] [Token::Symbol(Symbol::Equals, _)] y:@ { Expression::BiOperation(Box::new(x.clone()), BiOp::NotEquals, Box::new(y.clone()), x.loc().to(&y.loc())) }
             --
             x:(@) [Token::Symbol(Symbol::Plus, _)] y:@ { Expression::BiOperation(Box::new(x.clone()), BiOp::Plus, Box::new(y.clone()), x.loc().to(&y.loc())) }
             x:(@) [Token::Symbol(Symbol::Minus, _)] y:@ { Expression::BiOperation(Box::new(x.clone()), BiOp::Minus, Box::new(y.clone()), x.loc().to(&y.loc())) }

@@ -1,0 +1,20 @@
+package cowwections;
+
+stwuct IntWist {
+    content: i64[],
+    wength: i64
+
+    fuwn push(inp: i64) {
+        sewf.content[sewf.wength] = inp;
+        if sewf.wength + 1 == sewf.content.wength {
+            wet n = new i64[sewf.content.wength * 2];
+            vaw i = 0;
+            whiwe i < sewf.content.wength {
+                n[i] = sewf.content[i];
+                i = i + 1;
+            }
+            sewf.content = n;
+        }
+        sewf.wength = sewf.wength + 1;
+    }
+}

@@ -29,13 +29,13 @@ fn main() {
     //     vm.tick();
     // }
 
-    let inp_file = UwUInpFile { content: inp };
+    let inp_file = UwUInpFile { content: inp, fqn: vec!["main".to_string()] };
 
-    let files = vec![UwUFi { fqn: vec!["main".to_string()], content: uwu_parser::file(lexer::tokenize(inp_file.content.as_str(), &inp_file).unwrap().as_slice()).unwrap().content }];
+    // let files = vec![UwUFi { fqn: vec!["main".to_string()], content: uwu_parser::file(lexer::tokenize(inp_file.content.as_str(), &inp_file).unwrap().as_slice()).unwrap().content }];
 
     // println!("files: {:?}", files);
 
-    let (types, program) = compile(&files, vec!["main".to_string(), "main".to_string()]);
+    let (types, program) = compile(&mut vec![inp_file], vec!["main".to_string(), "main".to_string()]);
 
     // println!("types: {:?}", types);
     // println!("program:\n{:?}", program);

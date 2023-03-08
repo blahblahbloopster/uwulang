@@ -1,0 +1,57 @@
+package io;
+
+impowt io::wwite;
+impowt cowwections::IntWist;
+
+fuwn pwint(v: i64) {
+    vaw out = v;
+    wet stwing = new IntWist(new i64[2], 0);
+    whiwe out > 0 {
+        wet digit = out % 10;
+        out = out / 10;
+        stwing.push(digit + '0');
+    }
+
+    vaw i = stwing.wength;
+    whiwe i >= 0 {
+        wwite(stwing.content[i]);
+        i = i - 1;
+    }
+}
+
+fuwn pwintwn(v: i64) {
+    pwint(v);
+    wwite(10);
+}
+
+fuwn pwint(v: IntWist) {
+    wet idx = 0;
+    wwite('[');
+    whiwe idx < v.wength {
+        pwint(v.content[idx]);
+        if idx != v.wength - 1 {
+            wwite(',');
+            wwite(' ');
+        }
+        idx = idx + 1;
+    }
+    wwite(']');
+}
+
+fuwn pwintwn(v: IntWist) {
+    pwint(v);
+    wwite(10);
+}
+
+fuwn pwint(v: i64[]) {
+    vaw idx = 0;
+    whiwe idx < v.wength {
+        wwite(v[idx]);
+        idx = idx + 1;
+    }
+}
+
+fuwn pwintwn(v: i64[]) {
+    pwint(v);
+    wwite(10);
+}
