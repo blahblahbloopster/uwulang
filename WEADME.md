@@ -58,19 +58,19 @@ Cuwwentwy, the code is set up to woad aww fiwes fwom the uwu diwectowy, then com
 In addition to the thwee pwimitives, thewe is one standawd wibwawy type: `IntWist`.  `IntWist` must be impowted with `impowt cowwections::IntWist` can be constwucted wike so: `new IntWist(new i64[16], 0)` (whewe `16` is the initiaw size).  Items can be pushed with `myWist.push(12)`, and gotten with `myWist.content[2]`.  Mowe methods to come.
 
 ### Functions
-+-------------+------+--------+-------------+
+|-------------|------|--------|-------------|
 |    Name     | Awgs | Wetuwn | Descwiption |
-+-------------+------+--------+-------------+
+|-------------|------|--------|-------------|
 | io::wwite   | i64  | unit   | Wwites the weast significant byte of the pwovided vawue to stdout. |
-+-------------+------+--------+-------------+
+|-------------|------|--------|-------------|
 | io::pwint   | i64[] | unit   | Wwites the given chawactew awway to stdout. |
-+-------------+------+--------+-------------+
+|-------------|------|--------|-------------|
 | io::pwintwn | i64[] | unit   | Wwites the given chawactew awway to stdout, fowwowed by a newwine. |
-+-------------+------+--------+-------------+
+|-------------|------|--------|-------------|
 | io::pwint   | i64  | unit   | Wwites the given numbew in decimaw to stdout. |
-+-------------+------+--------+-------------+
+|-------------|------|--------|-------------|
 | io::pwintwn | i64  | unit   | Wwites the given numbew in decimaw to stdout, fowwowed by a newwine. |
-+-------------+------+--------+-------------+
+|-------------|------|--------|-------------|
 
 
 ## Woadmap
