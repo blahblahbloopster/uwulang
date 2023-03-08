@@ -3,8 +3,8 @@ use std::hash::Hash;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Loc<'a> {
-    file: &'a UwUInpFile,
-    left: usize, right: usize
+    pub file: &'a UwUInpFile,
+    pub left: usize, pub right: usize
 }
 
 impl<'a> Loc<'a> {
@@ -32,6 +32,15 @@ pub enum Literal<'a> {
 pub enum Type<'a> {
     Simple(String, Loc<'a>),
     Array(Box<Type<'a>>, Loc<'a>)
+}
+
+impl<'a> Type<'a> {
+    pub fn loc(&self) -> Loc<'a> {
+        match self {
+            Type::Simple(_, v) => *v,
+            Type::Array(_, v) => *v
+        }
+    }
 }
 
 impl<'a> Hash for Literal<'a> {
@@ -72,7 +81,6 @@ pub enum BiOp {
 #[derive(Clone, Debug, PartialEq, Hash, Eq)]
 pub enum Expression<'a> {
     Literal(Literal<'a>, Loc<'a>),
-    Parenthesis(Box<Expression<'a>>, Loc<'a>),
     BiOperation(Box<Expression<'a>>, BiOp, Box<Expression<'a>>, Loc<'a>),
     FunctionInvocation { name: String, args: Vec<Expression<'a>>, loc: Loc<'a> },
     Instantiation { name: String, args: Vec<Expression<'a>>, loc: Loc<'a> },
@@ -112,17 +120,16 @@ pub enum Declaration<'a> {
 impl<'a> Declaration<'a> {
     pub fn loc(&self) -> Loc<'a> {
         *match self {
-            Declaration::Import { path, item, loc } => loc,
-            Declaration::Function { name, args, return_type, block, loc, receiver } => loc,
-            Declaration::Struct { name, fields, loc } => loc,
+            Declaration::Import { path: _, item: _, loc } => loc,
+            Declaration::Function { name: _, args: _, return_type: _, block: _, loc, receiver: _ } => loc,
+            Declaration::Struct { name: _, fields: _, loc } => loc,
         }
     }
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct UwUInpFile {
-    pub content: String,
-    pub fqn: Vec<String>
+    pub content: String
 }
 
 impl Debug for UwUInpFile {
@@ -247,15 +254,14 @@ impl<'a> Expression<'a> {
     pub fn loc(&self) -> Loc<'a> {
         *match self {
             Expression::Literal(_, l) => l,
-            Expression::Parenthesis(_, l) => l,
             Expression::BiOperation(_, _, _, l) => l,
-            Expression::FunctionInvocation { name, args, loc } => loc,
-            Expression::Instantiation { name, args, loc } => loc,
+            Expression::FunctionInvocation { name: _, args: _, loc } => loc,
+            Expression::Instantiation { name: _, args: _, loc } => loc,
             Expression::VarAccess(_, l) => l,
             Expression::PropertyAccess(_, _, l) => l,
-            Expression::ArrayCreation { typename, degree, num, loc } => loc,
-            Expression::ArrayAccess { arr, idx, loc } => loc,
-            Expression::MethodInvocation { left, name, args, loc } => loc
+            Expression::ArrayCreation { typename: _, degree: _, num: _, loc } => loc,
+            Expression::ArrayAccess { arr: _, idx: _, loc } => loc,
+            Expression::MethodInvocation { left: _, name: _, args: _, loc } => loc
         }
     }
 }

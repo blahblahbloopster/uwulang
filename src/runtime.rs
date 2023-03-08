@@ -1,7 +1,7 @@
 use std::{collections::HashMap, process::exit};
 
 use rand::{thread_rng, RngCore};
-use crate::{stdlib::{STDLIB_FUNCS, NativeType, UNIT}, newcompiler::{UwUTy, InstructionBuilder}};
+use crate::{stdlib::STDLIB_FUNCS, newcompiler::{UwUTy, InstructionBuilder}};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FieldInfo {
@@ -211,7 +211,6 @@ impl VM {
                 let fetched = match &self.heap[&addr] {
                     UwUIns::Struct { mark: _, tpe: _, data } => data[num as usize],
                     UwUIns::Arr { mark: _, item_type: _, items } => items.len() as i64,
-                    _ => panic!()
                 };
                 self.push((fetched, field_tpe.clone()))
             }
@@ -319,8 +318,8 @@ impl VM {
         let mut to_remove = vec![];
         for item in &self.heap {
             let mark = match item.1 {
-                UwUIns::Arr { mark, item_type, items } => mark,
-                UwUIns::Struct { mark, tpe, data } => mark,
+                UwUIns::Arr { mark, item_type: _, items: _ } => mark,
+                UwUIns::Struct { mark, tpe: _, data: _ } => mark,
             };
 
             if *mark != self.mark {
@@ -339,7 +338,7 @@ impl UwUIns {
     fn mark(addr: i64, vm: &mut VM) {
         let slf = &vm.heap[&addr];
         match slf {
-            UwUIns::Arr { mark, item_type, items } => {
+            UwUIns::Arr { mark: _, item_type, items } => {
                 match item_type {
                     FieldInfo::Primitive => {}
                     _ => {
@@ -354,7 +353,7 @@ impl UwUIns {
                     }
                 }
             }
-            UwUIns::Struct { mark, tpe, data } => {
+            UwUIns::Struct { mark: _, tpe, data } => {
                 let found = &vm.types[*tpe];
                 let fields = match found {
                     FieldInfo::Primitive => panic!(),
@@ -376,10 +375,10 @@ impl UwUIns {
         let m = vm.mark;
         let s = vm.heap.get_mut(&addr).unwrap();
         match s {
-            UwUIns::Arr { mark, item_type, items } => {
+            UwUIns::Arr { mark, item_type: _, items: _ } => {
                 *mark = m;
             }
-            UwUIns::Struct { mark, tpe, data } => {
+            UwUIns::Struct { mark, tpe: _, data: _ } => {
                 *mark = m;
             }
         }

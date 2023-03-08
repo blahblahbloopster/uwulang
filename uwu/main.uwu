@@ -1,0 +1,37 @@
+package main;
+
+impowt io::pwint;
+impowt io::pwintwn;
+impowt io::wwite;
+
+stwuct UwUCountew {
+    count: i64,
+    message: i64[]
+
+    fuwn show() {
+        pwint(sewf.message);
+        pwint(" ");
+        pwintwn(sewf.count);
+    }
+
+    fuwn uwu() {
+        sewf.count = sewf.count + 1;
+    }
+}
+
+fuwn main() {
+    wet countew = new UwUCountew(0, "uwus:");
+
+    vaw idx = 0;
+    whiwe idx < 5 {
+        countew.uwu();
+        countew.show();
+        idx = idx + 1;
+    }
+
+    wet myAwway = new i64[5];
+    myAwway[2] = 'A';
+    wwite(myAwway[2]);
+    pwintwn("");
+}
+

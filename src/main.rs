@@ -1,14 +1,9 @@
-use std::{fs::File, io::Read, hash::Hash, ops::Range, fmt::Debug};
+use std::{fs::{File, self}, io::Read, path::Path};
 
-use newcompiler::{compile, UwUFi};
+use newcompiler::compile;
 
-use crate::{runtime::VM, parser::{UwUInpFile, uwu_parser, lexer}};
+use crate::{runtime::VM, parser::UwUInpFile};
 
-// use compiler::{compile, UwUFile};
-
-// use crate::bytecode::VM;
-mod bytecode;
-mod compiler;
 mod stdlib;
 mod newcompiler;
 mod runtime;
@@ -16,26 +11,16 @@ mod serialization;
 mod parser;
 
 fn main() {
-    let mut inp = String::new();
-    File::open("example.uwu").unwrap().read_to_string(&mut inp).unwrap();
+    let files = fs::read_dir("uwu").expect("uwu directory not found, is your working directory wrong?");
+    let mut inp_files = vec![];
+    for item in files {
+        let mut inp = String::new();
+        File::open(item.unwrap().path()).unwrap().read_to_string(&mut inp).unwrap();
+    
+        inp_files.push(UwUInpFile { content: inp });
+    }
 
-    // let (program, types) = compile(vec![UwUFile { content: inp, path: vec![], name: "main".to_string() }], (vec!["main".to_string()], "main".to_string()));
-    // println!("program: {:?}", program);
-    // println!();
-    // println!();
-    // let mut vm = VM::new(program, types);
-
-    // loop {
-    //     vm.tick();
-    // }
-
-    let inp_file = UwUInpFile { content: inp, fqn: vec!["main".to_string()] };
-
-    // let files = vec![UwUFi { fqn: vec!["main".to_string()], content: uwu_parser::file(lexer::tokenize(inp_file.content.as_str(), &inp_file).unwrap().as_slice()).unwrap().content }];
-
-    // println!("files: {:?}", files);
-
-    let (types, program) = compile(&mut vec![inp_file], vec!["main".to_string(), "main".to_string()]);
+    let (types, program) = compile(&mut inp_files, vec!["main".to_string(), "main".to_string()]);
 
     // println!("types: {:?}", types);
     // println!("program:\n{:?}", program);
