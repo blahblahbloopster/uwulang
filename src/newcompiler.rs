@@ -1,16 +1,7 @@
-/*
+use std::collections::HashMap;
 
- 1. Resolve types
-  1. Go through all files
-  2. Instantiate all structs with no fields
-  3. Instantiate all functions with no args and unit return type
-  4. Resolve struct types and function types
-
-*/
-
-use std::{collections::HashMap, slice::Iter};
-
-use crate::{Declaration, ParsedFile, NameTypePair, stdlib::{NativeType, NativeFunction, PRIMITIVE_TYPES, UNIT, I64, BOOL, F64, STDLIB_FUNCS}, runtime::{Instruction, FieldInfo, Cond, Tpe}, Expression, Statement, BiOp, Type, Loc};
+use crate::{stdlib::{NativeType, NativeFunction, PRIMITIVE_TYPES, UNIT, I64, BOOL, F64, STDLIB_FUNCS}, runtime::{Instruction, FieldInfo, Cond, Tpe}, parser::Literal};
+use crate::parser::{Declaration, Expression, Statement, BiOp, Type, Loc};
 
 #[derive(Clone, Debug, PartialEq, Hash, Eq)]
 pub struct UwUStrc<'b> {
@@ -49,35 +40,35 @@ struct UnresolvedImport {
 #[derive(PartialEq, Hash, Eq, Debug)]
 enum UwUFunc<'a, 'b> {
     Native(&'b NativeFunction<'b>),
-    Defined { fqn: Vec<String>, args: Vec<(String, UwUTy<'b>)>, return_type: UwUTy<'b>, data: &'a Vec<Statement<'a>> }
+    Defined { fqn: Vec<String>, args: Vec<(String, UwUTy<'b>)>, return_type: UwUTy<'b>, data: &'a Vec<Statement<'a>>, receiver: Option<UwUStrc<'b>> }
 }
 
 impl<'a, 'b> UwUFunc<'a, 'b> {
     fn fqn(&self) -> Vec<String> {
         match self {
             UwUFunc::Native(v) => v.fqn.iter().map(|x| x.to_string()).collect(),
-            UwUFunc::Defined { fqn, args, return_type, data } => fqn.clone(),
+            UwUFunc::Defined { fqn, args, return_type, data, receiver } => fqn.clone(),
         }
     }
 
     fn pseudo_copy(&self) -> UwUFunc<'a, 'b> {
         match self {
             UwUFunc::Native(v) => UwUFunc::Native(v),
-            UwUFunc::Defined { fqn, args, return_type, data } => UwUFunc::Defined { fqn: fqn.clone(), args: args.iter().map(|x| (x.0.clone(), x.1.pseudo_copy())).collect(), return_type: return_type.pseudo_copy(), data }
+            UwUFunc::Defined { fqn, args, return_type, data, receiver } => UwUFunc::Defined { fqn: fqn.clone(), args: args.iter().map(|x| (x.0.clone(), x.1.pseudo_copy())).collect(), return_type: return_type.pseudo_copy(), data, receiver: receiver.clone() }
         }
     }
 
     fn args(&self) -> Vec<(String, UwUTy)> {
         match self {
             UwUFunc::Native(v) => v.args.iter().map(|x| (x.0.to_string(), x.1.pseudo_copy())).collect(),
-            UwUFunc::Defined { fqn, args, return_type, data } => args.iter().map(|x| (x.0.clone(), x.1.pseudo_copy())).collect()
+            UwUFunc::Defined { fqn, args, return_type, data, receiver } => args.iter().map(|x| (x.0.clone(), x.1.pseudo_copy())).collect()
         }
     }
 
     fn return_type(&self) -> UwUTy<'b> {
         match self {
             UwUFunc::Native(v) => v.ret.pseudo_copy(),
-            UwUFunc::Defined { fqn, args, return_type, data } => return_type.pseudo_copy()
+            UwUFunc::Defined { fqn, args, return_type, data, receiver } => return_type.pseudo_copy()
         }
     }
 }
@@ -138,8 +129,22 @@ pub fn compile<'a, 'b, 'c>(files: &'a Vec<UwUFi<'a>>, entrypoint: Vec<String>) -
     for file in files {
         for decl in &file.content {
             match decl {
-                Declaration::Function { name, args, return_type, block, loc } => {
-                    functions.push((UwUFunc::Defined { fqn: file.fqn.plus(name), args: vec![], return_type: UwUTy::Native(UNIT), data: block }, file, decl));
+                Declaration::Function { name, args, return_type, block, loc, receiver } => {
+                    let mut recv = None;
+                    match receiver {
+                        None => {}
+                        Some(Type::Simple(v, _)) => {
+                            for i in 0..structs_s.len() {
+                                let fi = &structs_f[i];
+                                let found_struct: &UwUStrc = &structs_s[i];
+                                if v == found_struct.fqn.last().unwrap() && fi == &file {
+                                    recv = Some(found_struct.clone());
+                                }
+                            }
+                        }
+                        _ => panic!()
+                    }
+                    functions.push((UwUFunc::Defined { fqn: file.fqn.plus(name), args: vec![], return_type: UwUTy::Native(UNIT), data: block, receiver: recv }, file, decl));
                 }
                 Declaration::Struct { name, fields, loc } => {
                     // structs.push((UwUStrc { fqn: file.fqn.plus(name), fields: vec![] }, file, decl));
@@ -185,18 +190,37 @@ pub fn compile<'a, 'b, 'c>(files: &'a Vec<UwUFi<'a>>, entrypoint: Vec<String>) -
             file_mapping.insert(item.fqn().last().unwrap().to_string(), Importable::Type(UwUTy::Native(item)));
         }
 
-        for (func, fi, _) in &functions {
-            if fi == &file {
-                file_mapping.insert(func.fqn().last().unwrap().clone(), Importable::Function(func.pseudo_copy()));
-            }
-        }
-
         for i in 0..structs_s.len() {
             let strct = &structs_s[i];
             let fi = &structs_f[i];
 
             if fi == &file {
                 file_mapping.insert(strct.fqn.last().unwrap().clone(), Importable::Type(UwUTy::Struct(strct)));
+            }
+        }
+
+        // Resolve function arg+return types
+        for (func, file, decl) in &functions {
+            let (args, rtype, data) = match decl {
+                Declaration::Function { name, args, return_type, block, loc, receiver } => (args.clone(), return_type.clone(), block),
+                _ => panic!()
+            };
+
+            let resolved_ret_type = resolve(&file_mapping, &rtype.unwrap_or(Type::Simple("unit".to_string(), decl.loc().clone() /* FIXME */))).expect("cannot use a function as a type");
+            let resolved_args = args.iter().map(|arg| {
+                (arg.name.0.clone(), resolve(&file_mapping, &arg.tpe).expect("cannot use a function as a type"))
+            }).collect();
+            let receiver = match func {
+                UwUFunc::Native(_) => panic!(),
+                UwUFunc::Defined { fqn, args, return_type, data, receiver } => receiver
+            }.clone();
+            let new = &mut UwUFunc::Defined { fqn: func.fqn(), args: resolved_args, return_type: resolved_ret_type, data, receiver };
+            std::mem::swap(new, unsafe { &mut *(func as *const UwUFunc as *mut UwUFunc) });
+        }
+
+        for (func, fi, _) in &functions {
+            if fi == &file {
+                file_mapping.insert(func.fqn().last().unwrap().clone(), Importable::Function(func.pseudo_copy()));
             }
         }
 
@@ -227,20 +251,6 @@ pub fn compile<'a, 'b, 'c>(files: &'a Vec<UwUFi<'a>>, entrypoint: Vec<String>) -
         unsafe { (*(strct as *const UwUStrc as *mut UwUStrc)).fields = resolved_fields }
     }
 
-    // Resolve function arg+return types
-    for (func, file, decl) in &functions {
-        let (args, rtype, data) = match decl {
-            Declaration::Function { name, args, return_type, block, loc } => (args.clone(), return_type.clone(), block),
-            _ => panic!()
-        };
-
-        let resolved_ret_type = resolve(&mapping[file], &rtype.unwrap_or(Type::Simple("unit".to_string(), decl.loc().clone() /* FIXME */))).expect("cannot use a function as a type");
-        let resolved_args = args.iter().map(|arg| {
-            (arg.name.0.clone(), resolve(&mapping[file], &arg.tpe).expect("cannot use a function as a type"))
-        }).collect();
-        let new = &mut UwUFunc::Defined { fqn: func.fqn(), args: resolved_args, return_type: resolved_ret_type, data };
-        std::mem::swap(new, unsafe { &mut *(func as *const UwUFunc as *mut UwUFunc) });
-    }
 
     // do the actual compiling
     let entryp = functions.iter().find(|x| x.0.fqn() == entrypoint).expect("entrypoint not found");
@@ -257,7 +267,10 @@ pub fn compile<'a, 'b, 'c>(files: &'a Vec<UwUFi<'a>>, entrypoint: Vec<String>) -
 
     for (func, idx) in out.calls_to_update {
         let found = out.starts[&func];
-        out.out[idx] = Instruction::CALL(found as u64, func.args().len() as u32);
+        out.out[idx] = Instruction::CALL(found as u64, func.args().len() as u32 + match func {
+            UwUFunc::Native(v) => 0,
+            UwUFunc::Defined { fqn, args, return_type, data, receiver } => if receiver.is_some() { 1 } else { 0 },
+        });
     }
 
     (out.types, out.out)
@@ -267,10 +280,10 @@ fn compile_expr<'a, 'b, 'c>(expr: &Expression, import_mapping: &HashMap<String, 
     match expr {
         Expression::Literal(v, loc) => {
             let tpe = match v {
-                crate::Literal::Int(n) => { out.push(Instruction::PUSH(*n)); UwUTy::Native(I64) }
-                crate::Literal::Float(n) => { out.push(Instruction::PUSH(n.as_int())); UwUTy::Native(F64) }
-                crate::Literal::Bool(b) => { out.push(Instruction::PUSH(b.as_int())); UwUTy::Native(BOOL) }
-                crate::Literal::String(s) => {
+                Literal::Int(n) => { out.push(Instruction::PUSH(*n)); UwUTy::Native(I64) }
+                Literal::Float(n) => { out.push(Instruction::PUSH(n.as_int())); UwUTy::Native(F64) }
+                Literal::Bool(b) => { out.push(Instruction::PUSH(b.as_int())); UwUTy::Native(BOOL) }
+                Literal::String(s) => {
                     let in_frame = out.current().values.len() as u32;
                     let chars = s.chars().collect::<Vec<_>>();
                     out.push(Instruction::PUSH(chars.len() as i64));
@@ -303,6 +316,7 @@ fn compile_expr<'a, 'b, 'c>(expr: &Expression, import_mapping: &HashMap<String, 
                 BiOp::Minus => [Some((Instruction::ISUB, UwUTy::Native(&NativeType::Primitive(Primitive::I64)))), Some((Instruction::FSUB, UwUTy::Native(&NativeType::Primitive(Primitive::I64)))), None, None],
                 BiOp::Times => [Some((Instruction::IMUL, UwUTy::Native(&NativeType::Primitive(Primitive::I64)))), Some((Instruction::FMUL, UwUTy::Native(&NativeType::Primitive(Primitive::I64)))), None, None],
                 BiOp::Divide => [Some((Instruction::IDIV, UwUTy::Native(&NativeType::Primitive(Primitive::I64)))), Some((Instruction::FDIV, UwUTy::Native(&NativeType::Primitive(Primitive::I64)))), None, None],
+                BiOp::Mod => [Some((Instruction::IMOD, UwUTy::Native(&NativeType::Primitive(Primitive::I64)))), None, None, None],
                 BiOp::DoubleEquals => [Some((Instruction::CMP(Cond::Eq), UwUTy::Native(&NativeType::Primitive(Primitive::Bool)))), Some((Instruction::CMP(Cond::Eq), UwUTy::Native(&NativeType::Primitive(Primitive::Bool)))), Some((Instruction::CMP(Cond::Eq), UwUTy::Native(&NativeType::Primitive(Primitive::Bool)))), None],  // TODO
                 BiOp::GreaterThan => [Some((Instruction::CMP(Cond::IGr), UwUTy::Native(&NativeType::Primitive(Primitive::Bool)))), Some((Instruction::CMP(Cond::FGr), UwUTy::Native(&NativeType::Primitive(Primitive::Bool)))), None, None],
                 BiOp::GreatherThanEquals => [Some((Instruction::CMP(Cond::IGrE), UwUTy::Native(&NativeType::Primitive(Primitive::Bool)))), Some((Instruction::CMP(Cond::FGrE), UwUTy::Native(&NativeType::Primitive(Primitive::Bool)))), None, None],
@@ -411,7 +425,6 @@ fn compile_expr<'a, 'b, 'c>(expr: &Expression, import_mapping: &HashMap<String, 
                 UwUTy::Native(_) => panic!("cannot access field of native type"),
                 UwUTy::Array(_) => {
                     assert!(name == "size" || name == "wength", "field not found");
-                    out.push(Instruction::GET(0));
                     (0, &UwUTy::Native(I64))
                 }
             };
@@ -445,6 +458,50 @@ fn compile_expr<'a, 'b, 'c>(expr: &Expression, import_mapping: &HashMap<String, 
             out.current().values.pop();
             out.current().values.pop();
             out.current().values.push((None, item_type));
+        },
+        Expression::MethodInvocation { left, name, args, loc } => {
+            compile_expr(left, import_mapping, out);
+            let left_type = match out.current().values.last().unwrap().1 {
+                UwUTy::Struct(v) => v.fqn.clone(),
+                UwUTy::Native(_) => panic!(),
+                UwUTy::Array(_) => panic!(),
+            };
+
+            // println!("file mapping: {:?}", import_mapping);
+
+            // TODO: auto import all of a given struct's functions when you import it
+            let resolved = import_mapping[name].as_func().expect("can't call a type (use new)");
+            match &resolved {
+                UwUFunc::Native(_) => panic!("can't call a method on a native type"),
+                UwUFunc::Defined { fqn, args, return_type, data, receiver } => {
+                    // println!("rec: {:?} found: {:?}", receiver, left_type);
+                    assert!(receiver.clone().unwrap().fqn == left_type)
+                }
+            }
+            let exp_args = resolved.args();
+            let num_args = exp_args.len();
+
+            // println!("found func: {:?}", resolved);
+
+            assert!(num_args == args.len(), "wrong number of args (expected {}, found {})", num_args, args.len());
+            for (arg, expr) in exp_args.iter().zip(args) {
+                compile_expr(expr, import_mapping, out);  // NOTE: this could be backwards
+                assert!(out.current().values.last().unwrap().1 == arg.1, "incorrect argument type (expected {:?}, found {:?})", arg.1, out.current().values.last().unwrap().1);
+            }
+            for _ in 0..exp_args.len() {
+                out.current().values.pop();
+            }
+            out.current().values.pop();
+            out.current().values.push((None, resolved.return_type()));
+            match &resolved {
+                UwUFunc::Native(v) => {
+                    out.push(Instruction::NATIVE(v.id as usize));
+                }
+                UwUFunc::Defined { .. } => {
+                    out.calls_to_update.push((resolved, out.out.len()));
+                    out.push(Instruction::CALL(u64::MAX, num_args as u32 + 1));
+                }
+            }
         }
     }
 }
@@ -519,7 +576,7 @@ fn compile_block<'a, 'b, 'c>(block: &Vec<Statement<'a>>, import_mapping: &HashMa
                 let idx = out.out.len();
                 out.stack.push(CompileStackFrame { values: vec![] });
                 out.push(Instruction::PUSHFR);
-                compile_block(block, import_mapping, out);
+                compile_block(block, import_mapping, out)?;
                 out.push(Instruction::POPFR);
                 out.stack.pop();
                 out.out[idx - 1] = Instruction::BRANCH(Cond::Eq, out.out.len() as u64);
@@ -537,12 +594,12 @@ fn compile_block<'a, 'b, 'c>(block: &Vec<Statement<'a>>, import_mapping: &HashMa
                 out.push(Instruction::BRANCH(Cond::Eq, u64::MAX));
                 out.current().values.pop();
 
-                compile_block(block, import_mapping, out);
+                compile_block(block, import_mapping, out)?;
 
                 out.push(Instruction::POPFR);
                 out.push(Instruction::BRANCH(Cond::Always, start as u64));
                 out.stack.pop();
-                out.out[idx] = Instruction::BRANCH(Cond::NEq, out.out.len() as u64);
+                out.out[idx] = Instruction::BRANCH(Cond::Eq, out.out.len() as u64);
                 out.push(Instruction::POPFR);
             }
             Statement::Break(loc) => todo!(),
@@ -575,10 +632,20 @@ fn compile_function<'a, 'b, 'c>(func: &UwUFunc<'a, 'b>, import_mapping: &HashMap
     out.starts.insert(func.pseudo_copy(), out.out.len());
     out.stack.clear();
     out.stack.push(CompileStackFrame { values: vec![] });
-    let (fqn, args, return_type, data) =  match func {
+    let (fqn, args, return_type, data, receiver) =  match func {
         UwUFunc::Native(_) => panic!(),
-        UwUFunc::Defined { fqn, args, return_type, data } => (fqn, args, return_type, *data)
+        UwUFunc::Defined { fqn, args, return_type, data, receiver } => (fqn, args, return_type, *data, receiver)
     };
+    match receiver {
+        Some(v) => {
+            let found = match &import_mapping[v.fqn.last().unwrap()] {
+                Importable::Type(v) => v.pseudo_copy(),
+                Importable::Function(_) => panic!(),
+            };
+            out.current().values.push((Some("sewf".to_string()), found));    
+        }
+        None => {}
+    }
     for item in args {
         out.current().values.push((Some(item.0.clone()), item.1.pseudo_copy()))
     }

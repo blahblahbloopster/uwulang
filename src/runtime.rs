@@ -1,7 +1,7 @@
 use std::{collections::HashMap, process::exit};
 
 use rand::{thread_rng, RngCore};
-use crate::{stdlib::{STDLIB_FUNCS, NativeType, UNIT}, Type, newcompiler::{UwUTy, InstructionBuilder}};
+use crate::{stdlib::{STDLIB_FUNCS, NativeType, UNIT}, newcompiler::{UwUTy, InstructionBuilder}};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FieldInfo {
@@ -11,18 +11,18 @@ pub enum FieldInfo {
 }
 
 pub struct VM {
-    types: Vec<FieldInfo>,
+    pub types: Vec<FieldInfo>,
     pub heap: HashMap<i64, UwUIns>,
-    stack: Vec<StackFrame>,
-    program: Vec<Instruction>,
-    program_counter: usize,
-    mark: bool
+    pub stack: Vec<StackFrame>,
+    pub program: Vec<Instruction>,
+    pub program_counter: usize,
+    pub mark: bool
 }
 
 #[derive(Debug, Clone)]
-struct StackFrame {
-    return_addr: Option<u64>,
-    values: Vec<(i64, FieldInfo)>
+pub struct StackFrame {
+    pub return_addr: Option<u64>,
+    pub values: Vec<(i64, FieldInfo)>
 }
 
 #[derive(Debug)]  // TODO: these can be merged
@@ -109,8 +109,8 @@ impl VM {
             _ => {}
         }
 
-        let a = self.popi();
         let b = self.popi();
+        let a = self.popi();
         let af: f64 = unsafe { std::mem::transmute(a) };
         let bf: f64 = unsafe { std::mem::transmute(b) };
 
@@ -141,8 +141,12 @@ impl VM {
             Instruction::HALT => exit(0),
             Instruction::BRANCH(cond, dst) => {
                 let d = *dst as usize;
+                // print!("cond: {:?} ", cond);
                 if self.evaluate(cond.clone()) {
                     self.program_counter = d;
+                    // println!("res: true")
+                } else {
+                    // println!("res: false")
                 }
             }
             Instruction::CALL(dst, num_args) => {
@@ -152,6 +156,7 @@ impl VM {
                 for _ in 0..*num_args {
                     values.push(self.pop())
                 };
+                values.reverse();
                 self.stack.push(StackFrame { return_addr, values })
             }
             Instruction::RET => {
@@ -168,8 +173,7 @@ impl VM {
                 }
             }
             Instruction::PUSHFR => { self.stack.push(StackFrame { return_addr: None, values: vec![] }); /* println!("pushing frame"); */ }
-            Instruction::POPFR => { self.stack.pop(); /* println!("popping frame"); */ 
-        }
+            Instruction::POPFR => { self.stack.pop(); /* println!("popping frame"); */ }
             Instruction::PUSH(v) => { self.pushi(*v) }
             Instruction::POP => { self.stack.last_mut().unwrap().values.pop(); }
             Instruction::COPY { from_top, in_frame } => { let gotten = &self.stack[self.stack.len() - *from_top as usize - 1].values[*in_frame as usize]; self.push(gotten.clone()) }
@@ -202,7 +206,7 @@ impl VM {
                 let field_tpe = match tpe {
                     FieldInfo::Fields(f) => (&f[num as usize]).clone(),
                     FieldInfo::Array(_) => FieldInfo::Primitive,
-                    _ => panic!()
+                    FieldInfo::Primitive => panic!("tried to access field of primitive type")
                 };
                 let fetched = match &self.heap[&addr] {
                     UwUIns::Struct { mark: _, tpe: _, data } => data[num as usize],
