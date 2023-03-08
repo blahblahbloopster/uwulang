@@ -58,19 +58,19 @@ Currently, the code is set up to load all files from the uwu directory, then com
 In addition to the three primitives, there is one standard library type: `IntWist`.  `IntWist` must be imported with `impowt cowwections::IntWist` can be constructed like so: `new IntWist(new i64[16], 0)` (where `16` is the initial size).  Items can be pushed with `myWist.push(12)`, and gotten with `myWist.content[2]`.  More methods to come.
 
 ### Functions
-|-------------|------+--------+-------------+
+|-------------|------|--------|-------------|
 |    Name     | Args | Return | Description |
-|-------------|------+--------+-------------+
+|-------------|------|--------|-------------|
 | io::wwite   | i64  | unit   | Writes the least significant byte of the provided value to stdout. |
-|-------------|------+--------+-------------+
+|-------------|------|--------|-------------|
 | io::pwint   | i64[] | unit   | Writes the given character array to stdout. |
-|-------------|------+--------+-------------+
+|-------------|------|--------|-------------|
 | io::pwintwn | i64[] | unit   | Writes the given character array to stdout, followed by a newline. |
-|-------------|------+--------+-------------+
+|-------------|------|--------|-------------|
 | io::pwint   | i64  | unit   | Writes the given number in decimal to stdout. |
-|-------------|------+--------+-------------+
+|-------------|------|--------|-------------|
 | io::pwintwn | i64  | unit   | Writes the given number in decimal to stdout, followed by a newline. |
-|-------------|------+--------+-------------+
+|-------------|------|--------|-------------|
 
 
 ## Roadmap
